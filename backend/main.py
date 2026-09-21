@@ -1,10 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import httpx
+
+from services.github_service import (
+    get_repository,
+    get_repository_contents,
+)
+
 
 app = FastAPI(title="CodeRunner API")
 
-# Allowing the React development server to communicate with FastAPI
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -22,20 +27,13 @@ def root():
 
 
 @app.get("/github/{owner}/{repo}")
-async def get_repository(owner: str, repo: str):
-    url = f"https://api.github.com/repos/{owner}/{repo}"
+async def repository(owner: str, repo: str):
+    data = await get_repository(owner, repo)
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url)
-
-    if response.status_code == 404:
+    if data is None:
         return {
             "error": "Repository not found"
         }
-
-    response.raise_for_status()
-
-    data = response.json()
 
     return {
         "name": data["name"],
@@ -44,5 +42,29 @@ async def get_repository(owner: str, repo: str):
         "language": data["language"],
         "stars": data["stargazers_count"],
         "forks": data["forks_count"],
-        "url": data["html_url"]
+        "url": data["html_url"],
+    }
+
+
+@app.get("/github/{owner}/{repo}/contents")
+async def repository_contents(owner: str, repo: str):
+    data = await get_repository_contents(owner, repo)
+
+    if data is None:
+        return {
+            "error": "Repository not found"
+        }
+
+    contents = []
+
+    for item in data:
+        contents.append({
+            "name": item["name"],
+            "type": item["type"],
+            "path": item["path"],
+        })
+
+    return {
+        "repository": f"{owner}/{repo}",
+        "contents": contents,
     }
