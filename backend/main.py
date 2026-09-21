@@ -4,7 +4,7 @@ import httpx
 
 app = FastAPI(title="CodeRunner API")
 
-# Allow the React frontend to communicate with the FastAPI backend
+# Allowing the React frontend to communicate with the FastAPI backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
