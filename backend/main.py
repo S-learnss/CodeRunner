@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from services.github_service import (
     get_repository,
     get_repository_contents,
+    get_file_contents,
 )
 
 
@@ -68,3 +69,17 @@ async def repository_contents(owner: str, repo: str):
         "repository": f"{owner}/{repo}",
         "contents": contents,
     }
+
+@app.get("/github/{owner}/{repo}/file/{path:path}")
+async def repository_file(owner: str, repo: str, path: str):
+    data = await get_file_contents(owner, repo, path)
+
+    if data is None:
+        return {
+            "error": "File not found"
+        }
+
+    if "error" in data:
+        return data
+
+    return data
