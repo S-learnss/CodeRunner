@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { parseGitHubUrl } from "./utils/github";
+import RepositoryExplorer from "./components/RepositoryExplorer";
 
 function App() {
   const [githubUrl, setGithubUrl] = useState("");
@@ -48,16 +49,18 @@ function App() {
         Explore a GitHub repository through CodeRunner.
       </p>
 
-      <input
-        type="text"
-        value={githubUrl}
-        onChange={(event) => setGithubUrl(event.target.value)}
-        placeholder="https://github.com/user/repository"
-      />
+      <div>
+        <input
+          type="text"
+          value={githubUrl}
+          onChange={(event) => setGithubUrl(event.target.value)}
+          placeholder="https://github.com/user/repository"
+        />
 
-      <button onClick={exploreRepository} disabled={loading}>
-        {loading ? "Exploring..." : "Explore Repository"}
-      </button>
+        <button onClick={exploreRepository} disabled={loading}>
+          {loading ? "Exploring..." : "Explore Repository"}
+        </button>
+      </div>
 
       {error && <p>{error}</p>}
 
@@ -93,6 +96,12 @@ function App() {
           >
             View on GitHub
           </a>
+
+          {/* Repository Explorer */}
+          <RepositoryExplorer
+            owner={repository.owner}
+            repo={repository.name}
+          />
         </section>
       )}
     </main>

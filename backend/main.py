@@ -5,12 +5,14 @@ from services.github_service import (
     get_repository,
     get_repository_contents,
     get_file_contents,
+    get_directory_contents,
 )
 
 
 app = FastAPI(title="CodeRunner API")
 
 
+# This allows the react frontend to communicate with the FastAPI backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -70,6 +72,7 @@ async def repository_contents(owner: str, repo: str):
         "contents": contents,
     }
 
+
 @app.get("/github/{owner}/{repo}/file/{path:path}")
 async def repository_file(owner: str, repo: str, path: str):
     data = await get_file_contents(owner, repo, path)
@@ -83,3 +86,23 @@ async def repository_file(owner: str, repo: str, path: str):
         return data
 
     return data
+
+
+@app.get("/github/{owner}/{repo}/directory/{path:path}")
+async def repository_directory(
+    owner: str,
+    repo: str,
+    path: str = "",
+):
+    data = await get_directory_contents(owner, repo, path)
+
+    if data is None:
+        return {
+            "error": "Directory not found"
+        }
+
+    return {
+        "repository": f"{owner}/{repo}",
+        "path": path,
+        "contents": data,
+    }
