@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { parseGitHubUrl } from "./utils/github";
 
 function App() {
   const [githubUrl, setGithubUrl] = useState("");
@@ -16,22 +17,7 @@ function App() {
     }
 
     try {
-      const url = new URL(githubUrl);
-
-      if (url.hostname !== "github.com") {
-        setError("Please enter a GitHub repository URL.");
-        return;
-      }
-
-      const parts = url.pathname.split("/").filter(Boolean);
-
-      if (parts.length < 2) {
-        setError("Please enter a valid GitHub repository URL.");
-        return;
-      }
-
-      const owner = parts[0];
-      const repo = parts[1];
+      const { owner, repo } = parseGitHubUrl(githubUrl);
 
       setLoading(true);
 
@@ -48,7 +34,7 @@ function App() {
 
       setRepository(data);
     } catch (error) {
-      setError("Please enter a valid GitHub URL.");
+      setError(error.message);
     } finally {
       setLoading(false);
     }
