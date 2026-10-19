@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { apiGet, encodePath } from "../utils/api";
 
 function RepositoryExplorer({ owner, repo }) {
   const [currentPath, setCurrentPath] = useState("");
@@ -7,59 +8,49 @@ function RepositoryExplorer({ owner, repo }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function loadDirectory(path = "") {
-    setLoading(true);
-    setError("");
+  const repoBase = `/github/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
 
-    try {
-      const response = await fetch(
-        `http://127.0.0.1:8000/github/${owner}/${repo}/directory/${path}`
-      );
+  const loadDirectory = useCallback(
+    async (path = "") => {
+      setLoading(true);
+      setError("");
 
-      const data = await response.json();
+      try {
+        const data = await apiGet(
+          `${repoBase}/directory/${encodePath(path)}`
+        );
 
-      if (!response.ok || data.error) {
-        setError(data.error || "Unable to load directory.");
-        return;
+        setContents(data.contents);
+        setCurrentPath(path);
+        setSelectedFile(null);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
       }
-
-      setContents(data.contents);
-      setCurrentPath(path);
-      setSelectedFile(null);
-    } catch (error) {
-      setError("Could not connect to the CodeRunner backend.");
-    } finally {
-      setLoading(false);
-    }
-  }
+    },
+    [repoBase]
+  );
 
   async function openFile(path) {
     setLoading(true);
     setError("");
 
     try {
-      const response = await fetch(
-        `http://127.0.0.1:8000/github/${owner}/${repo}/file/${path}`
-      );
-
-      const data = await response.json();
-
-      if (!response.ok || data.error) {
-        setError(data.error || "Unable to load file.");
-        return;
-      }
+      const data = await apiGet(`${repoBase}/file/${encodePath(path)}`);
 
       setSelectedFile(data);
-    } catch (error) {
-      setError("Could not load the file.");
+    } catch (err) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadDirectory("");
-  }, [owner, repo]);
+  }, [loadDirectory]);
 
   function handleItemClick(item) {
     if (item.type === "dir") {
@@ -80,23 +71,48 @@ function RepositoryExplorer({ owner, repo }) {
     loadDirectory(parts.join("/"));
   }
 
+  // Breadcrumb segments, e.g. "src/utils" -> [src, src/utils]
+  const segments = currentPath ? currentPath.split("/") : [];
+
   return (
     <section>
       <h2>Repository Explorer</h2>
 
-      <p>
-        <strong>Path:</strong> /{currentPath}
-      </p>
+      <nav aria-label="Current path">
+        <button onClick={() => loadDirectory("")} disabled={loading}>
+          {repo}
+        </button>
+
+        {segments.map((segment, index) => {
+          const segmentPath = segments.slice(0, index + 1).join("/");
+
+          return (
+            <span key={segmentPath}>
+              {" / "}
+              <button
+                onClick={() => loadDirectory(segmentPath)}
+                disabled={loading || segmentPath === currentPath}
+              >
+                {segment}
+              </button>
+            </span>
+          );
+        })}
+      </nav>
 
       {currentPath && (
-        <button onClick={goUp}>
+        <button onClick={goUp} disabled={loading}>
           Go Up
         </button>
       )}
 
       {loading && <p>Loading...</p>}
 
-      {error && <p>{error}</p>}
+      {error && <p role="alert">{error}</p>}
+
+      {!loading && !error && contents.length === 0 && (
+        <p>This directory is empty.</p>
+      )}
 
       {!loading && !error && (
         <div>

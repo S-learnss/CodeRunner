@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { parseGitHubUrl } from "./utils/github";
 import RepositoryExplorer from "./components/RepositoryExplorer";
+import { apiGet } from "./utils/api";
 
 function App() {
   const [githubUrl, setGithubUrl] = useState("");
@@ -22,16 +23,9 @@ function App() {
 
       setLoading(true);
 
-      const response = await fetch(
-        `http://127.0.0.1:8000/github/${owner}/${repo}`
+      const data = await apiGet(
+        `/github/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`
       );
-
-      const data = await response.json();
-
-      if (!response.ok || data.error) {
-        setError(data.error || "Failed to retrieve repository.");
-        return;
-      }
 
       setRepository(data);
     } catch (error) {
