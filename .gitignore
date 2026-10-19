@@ -1,5 +1,6 @@
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 *.pyo
 
@@ -10,6 +11,7 @@ venv/
 # Environment variables
 .env
 .env.*
+!.env.example
 
 # Node
 node_modules/
