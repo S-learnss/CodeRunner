@@ -1,0 +1,183 @@
+.file-viewer {
+  margin-top: 24px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  text-align: left;
+  scroll-margin-top: 16px;
+}
+
+.file-viewer__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 14px;
+  background: var(--code-bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.file-viewer__title {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  word-break: break-all;
+  color: var(--text-h);
+}
+
+.file-viewer__meta {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.file-viewer__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.file-viewer__notice,
+.file-viewer__empty {
+  margin: 0;
+  padding: 12px 14px;
+  font-size: 14px;
+}
+
+/* Gutter and code sit side by side inside one scrolling box so the
+   line numbers always line up with the code. */
+.file-viewer__body {
+  display: flex;
+  max-height: 70vh;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.file-viewer__gutter,
+.file-viewer__code {
+  margin: 0;
+  padding: 12px 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  tab-size: 4;
+}
+
+.file-viewer__gutter {
+  position: sticky;
+  left: 0;
+  flex: 0 0 auto;
+  min-width: 3ch;
+  padding-left: 12px;
+  padding-right: 12px;
+  text-align: right;
+  user-select: none;
+  color: var(--text);
+  opacity: 0.8;
+  background: var(--code-bg);
+  border-right: 1px solid var(--border);
+}
+
+.file-viewer__code {
+  flex: 1 0 auto;
+  padding-left: 14px;
+  padding-right: 14px;
+  color: var(--text-h);
+}
+
+.file-viewer__code code.hljs {
+  display: block;
+  padding: 0;
+  font: inherit;
+  background: none;
+  color: inherit;
+}
+
+/* Syntax colours: light theme first, dark overrides below. */
+.file-viewer {
+  --tok-comment: #6a737d;
+  --tok-keyword: #cf222e;
+  --tok-string: #0a6b3a;
+  --tok-number: #0550ae;
+  --tok-title: #8250df;
+  --tok-attr: #953800;
+}
+
+@media (prefers-color-scheme: dark) {
+  .file-viewer {
+    --tok-comment: #8b949e;
+    --tok-keyword: #ff7b72;
+    --tok-string: #7ee787;
+    --tok-number: #79c0ff;
+    --tok-title: #d2a8ff;
+    --tok-attr: #ffa657;
+  }
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--tok-comment);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-meta .hljs-keyword {
+  color: var(--tok-keyword);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-meta .hljs-string {
+  color: var(--tok-string);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: var(--tok-number);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-title.class_,
+.hljs-title.function_,
+.hljs-built_in,
+.hljs-type {
+  color: var(--tok-title);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-selector-class,
+.hljs-selector-id,
+.hljs-name,
+.hljs-params {
+  color: var(--tok-attr);
+}
+
+.hljs-deletion {
+  color: var(--tok-keyword);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: bold;
+}
+
+/* Mark the file currently open in the explorer list. */
+button[aria-current="true"] {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
