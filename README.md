@@ -23,7 +23,7 @@ The long-term goal is to let developers explore projects and eventually run supp
 ### Planned
 
 - Render images and Markdown in the viewer.
-- Run supported projects in isolated Docker containers.
+- Expand execution support beyond single-file Python scripts.
 - Add automated repository analysis and project summaries.
 - Private repository support in the user interface.
 - Improve security and execution controls.
