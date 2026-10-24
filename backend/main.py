@@ -154,6 +154,13 @@ async def repository_file(
             detail="The requested path is not a file"
         )
 
+    if data.get("is_binary"):
+        raise HTTPException(
+            status_code=415,
+            detail="Binary files can't be displayed. "
+                   "Open this file on GitHub instead."
+        )
+
     if data.get("decoded_content") is None:
         raise HTTPException(
             status_code=413,

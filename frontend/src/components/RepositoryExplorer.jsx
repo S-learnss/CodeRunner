@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiGet, encodePath } from "../utils/api";
+import FileViewer from "./FileViewer";
 
 function RepositoryExplorer({ owner, repo }) {
   const [currentPath, setCurrentPath] = useState("");
   const [contents, setContents] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [fileLoading, setFileLoading] = useState(false);
   const [error, setError] = useState("");
+  const [fileError, setFileError] = useState("");
 
   const repoBase = `/github/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
 
@@ -14,6 +17,7 @@ function RepositoryExplorer({ owner, repo }) {
     async (path = "") => {
       setLoading(true);
       setError("");
+      setFileError("");
 
       try {
         const data = await apiGet(
@@ -33,17 +37,19 @@ function RepositoryExplorer({ owner, repo }) {
   );
 
   async function openFile(path) {
-    setLoading(true);
-    setError("");
+    setFileLoading(true);
+    setFileError("");
 
     try {
       const data = await apiGet(`${repoBase}/file/${encodePath(path)}`);
 
       setSelectedFile(data);
     } catch (err) {
-      setError(err.message);
+      // Keep the folder list visible so the user can pick another file.
+      setSelectedFile(null);
+      setFileError(err.message);
     } finally {
-      setLoading(false);
+      setFileLoading(false);
     }
   }
 
@@ -120,6 +126,12 @@ function RepositoryExplorer({ owner, repo }) {
             <button
               key={item.path}
               onClick={() => handleItemClick(item)}
+              disabled={fileLoading}
+              aria-current={
+                selectedFile && selectedFile.path === item.path
+                  ? "true"
+                  : undefined
+              }
             >
               {item.type === "dir" ? "📁" : "📄"} {item.name}
             </button>
@@ -127,14 +139,15 @@ function RepositoryExplorer({ owner, repo }) {
         </div>
       )}
 
-      {selectedFile && (
-        <div>
-          <h3>{selectedFile.path}</h3>
+      {fileLoading && <p>Opening file...</p>}
 
-          <pre>
-            <code>{selectedFile.content}</code>
-          </pre>
-        </div>
+      {fileError && <p role="alert">{fileError}</p>}
+
+      {selectedFile && (
+        <FileViewer
+          file={selectedFile}
+          onClose={() => setSelectedFile(null)}
+        />
       )}
     </section>
   );

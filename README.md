@@ -12,7 +12,8 @@ The long-term goal is to let developers explore projects and eventually run supp
 
 - Retrieve public GitHub repository information, including its name, owner, description, primary language, stars, and forks.
 - Navigate nested directories with a breadcrumb trail and a "Go Up" button; folders are listed before files.
-- Fetch individual text files and display their decoded contents.
+- Source-code viewer with syntax highlighting (about 20 languages, light and dark themes), line numbers, a file header showing language, line count and size, a copy button, and a link to the file on GitHub.
+- Clear messages for files that cannot be displayed (binary files and files over GitHub's 1 MB inline limit) without losing your place in the folder list.
 - Expose backend functionality through REST API endpoints.
 - Readable error messages for missing repositories, rate limits, and GitHub outages.
 - Optional GitHub token support for higher API rate limits.
@@ -20,7 +21,7 @@ The long-term goal is to let developers explore projects and eventually run supp
 
 ### Planned
 
-- Display source code in a dedicated file viewer with syntax highlighting.
+- Render images and Markdown in the viewer.
 - Run supported projects in isolated Docker containers.
 - Add automated repository analysis and project summaries.
 - Private repository support in the user interface.
@@ -35,6 +36,7 @@ The long-term goal is to let developers explore projects and eventually run supp
 | Python | Backend programming language |
 | FastAPI | Backend REST API |
 | HTTPX | HTTP requests to the GitHub API |
+| highlight.js | Syntax highlighting in the file viewer |
 | pytest | Backend tests |
 | GitHub REST API | Repository metadata and file retrieval |
 | Git | Version control |
@@ -54,10 +56,13 @@ CodeRunner/
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
-│   │   │   └── RepositoryExplorer.jsx
+│   │   │   ├── RepositoryExplorer.jsx
+│   │   │   ├── FileViewer.jsx
+│   │   │   └── FileViewer.css
 │   │   ├── utils/
 │   │   │   ├── api.js
-│   │   │   └── github.js
+│   │   │   ├── github.js
+│   │   │   └── language.js
 │   │   ├── config.js
 │   │   └── App.jsx
 │   ├── package.json
@@ -168,6 +173,8 @@ macOS and Linux:
 export GITHUB_TOKEN="ghp_your_token_here"
 ```
 
+Use a real token, not the placeholder text from this README: GitHub answers a bad token with a 401 even for public repositories, and CodeRunner reports it as "GitHub rejected the access token". If you see that message, remove the variable (`Remove-Item Env:GITHUB_TOKEN` in PowerShell) or replace it with a valid token, then restart the backend.
+
 Never commit a real token. `.env.example` documents the variable name only, and `.env` files are ignored by Git.
 
 ### Backend URL (optional)
@@ -190,7 +197,16 @@ If the frontend runs on a different origin than `http://localhost:5173`, add tha
 | GET | `/github/{owner}/{repo}/directory/{path}` | List any directory; an empty path lists the root |
 | GET | `/github/{owner}/{repo}/file/{file_path}` | Retrieve an individual file |
 
-Errors are returned as JSON in the form `{"detail": "message"}` with a matching HTTP status code (for example 404 for a missing path or 429 when the GitHub rate limit is reached).
+Errors are returned as JSON in the form `{"detail": "message"}` with a matching HTTP status code:
+
+| Status | Meaning |
+|---|---|
+| 400 | The path is a file where a directory was expected, or the reverse |
+| 404 | Repository, directory or file not found |
+| 413 | File too large for GitHub to return inline (over 1 MB) |
+| 415 | Binary file, which cannot be shown as text |
+| 429 | GitHub rate limit reached |
+| 502 | GitHub unreachable, returned an error, or rejected the token |
 
 For example, to retrieve repository metadata:
 
@@ -232,7 +248,7 @@ npm run build
 ## Development Roadmap
 
 1. ~~Complete nested directory navigation.~~
-2. Build a dedicated source-code viewer.
+2. ~~Build a dedicated source-code viewer.~~
 3. Improve API validation and expand test coverage.
 4. Introduce safe, isolated Docker-based application execution.
 5. Add automated repository analysis.
