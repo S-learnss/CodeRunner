@@ -7,6 +7,7 @@ import httpx
 
 GITHUB_API_URL = "https://api.github.com"
 REQUEST_TIMEOUT = 15.0
+BINARY_SNIFF_BYTES = 8192
 
 
 class GitHubAPIError(Exception):
@@ -47,6 +48,13 @@ async def _github_get(url: str):
 
     if response.status_code == 404:
         return None
+
+    if response.status_code == 401:
+        raise GitHubAPIError(
+            502,
+            "GitHub rejected the access token. Check GITHUB_TOKEN "
+            "or remove it to make unauthenticated requests.",
+        )
 
     if response.status_code in (403, 429):
         if response.headers.get("x-ratelimit-remaining") == "0":
@@ -108,12 +116,20 @@ async def get_repository_file(
         return None
 
     if isinstance(data, dict) and data.get("type") == "file":
-        if data.get("encoding") == "base64":
-            encoded_content = data.get("content", "")
+        data["is_binary"] = False
 
-            data["decoded_content"] = base64.b64decode(
-                encoded_content
-            ).decode("utf-8", errors="replace")
+        if data.get("encoding") == "base64":
+            raw = base64.b64decode(data.get("content", ""))
+
+            # A null byte near the start is a reliable sign of a binary
+            # file (image, archive, compiled output, ...).
+            if b"\x00" in raw[:BINARY_SNIFF_BYTES]:
+                data["is_binary"] = True
+                data["decoded_content"] = None
+            else:
+                data["decoded_content"] = raw.decode(
+                    "utf-8", errors="replace"
+                )
         else:
             data["decoded_content"] = None
 

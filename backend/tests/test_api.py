@@ -40,10 +40,17 @@ FAKE_FILES = {
     "src/index.js": "console.log('hi')",
 }
 
+FAKE_BINARY_FILES = {
+    "assets/logo.png": b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR",
+}
+
 
 async def fake_github_get(url: str):
     if "/rate-limited" in url:
         raise GitHubAPIError(429, "GitHub API rate limit reached.")
+
+    if "/bad-token" in url:
+        raise GitHubAPIError(502, "GitHub rejected the access token.")
 
     prefix = f"{github_service.GITHUB_API_URL}/repos/octo/demo"
 
@@ -74,6 +81,19 @@ async def fake_github_get(url: str):
             "size": len(FAKE_FILES[path]),
             "encoding": "base64",
             "content": base64.b64encode(FAKE_FILES[path].encode()).decode(),
+            "html_url": f"https://github.com/octo/demo/blob/main/{path}",
+        }
+
+    if path in FAKE_BINARY_FILES:
+        raw = FAKE_BINARY_FILES[path]
+
+        return {
+            "type": "file",
+            "name": path.split("/")[-1],
+            "path": path,
+            "size": len(raw),
+            "encoding": "base64",
+            "content": base64.b64encode(raw).decode(),
             "html_url": f"https://github.com/octo/demo/blob/main/{path}",
         }
 
@@ -143,3 +163,54 @@ def test_rate_limit_error_is_forwarded(client):
     response = client.get("/github/octo/rate-limited/contents")
     assert response.status_code == 429
     assert "rate limit" in response.json()["detail"].lower()
+
+
+def test_binary_file_returns_415(client):
+    response = client.get("/github/octo/demo/file/assets/logo.png")
+    assert response.status_code == 415
+    assert "binary" in response.json()["detail"].lower()
+
+
+def test_bad_token_error_is_forwarded(client):
+    response = client.get("/github/octo/bad-token/contents")
+    assert response.status_code == 502
+    assert "token" in response.json()["detail"].lower()
+
+
+def _patch_transport(monkeypatch, status_code, headers=None):
+    """Make github_service talk to a fake GitHub returning one status."""
+    import httpx
+
+    real_client = httpx.AsyncClient
+
+    def handler(request):
+        return httpx.Response(status_code, headers=headers or {}, json={})
+
+    def factory(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr(github_service.httpx, "AsyncClient", factory)
+
+
+def test_github_401_is_mapped_to_token_message(monkeypatch):
+    import asyncio
+
+    _patch_transport(monkeypatch, 401)
+
+    with pytest.raises(GitHubAPIError) as excinfo:
+        asyncio.run(github_service._github_get("https://api.github.com/x"))
+
+    assert excinfo.value.status_code == 502
+    assert "GITHUB_TOKEN" in excinfo.value.message
+
+
+def test_github_rate_limit_is_mapped(monkeypatch):
+    import asyncio
+
+    _patch_transport(monkeypatch, 403, {"x-ratelimit-remaining": "0"})
+
+    with pytest.raises(GitHubAPIError) as excinfo:
+        asyncio.run(github_service._github_get("https://api.github.com/x"))
+
+    assert excinfo.value.status_code == 429
