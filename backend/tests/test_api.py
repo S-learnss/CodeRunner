@@ -37,6 +37,7 @@ FAKE_TREE = {
 
 FAKE_FILES = {
     "README.md": "# Hello",
+    "main.py": "print('hello from CodeRunner')",
     "src/index.js": "console.log('hi')",
 }
 
@@ -152,6 +153,59 @@ def test_legacy_contents_route_lists_root(client):
 def test_nested_file(client):
     data = client.get("/github/octo/demo/file/src/index.js").json()
     assert data["content"] == "console.log('hi')"
+
+
+def test_run_endpoint_returns_execution_result(client, monkeypatch):
+    from services.execution_service import ExecutionResult
+
+    monkeypatch.setattr(
+        main,
+        "run_python_script",
+        lambda script: ExecutionResult("completed", 0, "hello\n", "", 12),
+    )
+
+    response = client.post("/github/octo/demo/run")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "repository": "octo/demo",
+        "status": "completed",
+        "exit_code": 0,
+        "stdout": "hello\n",
+        "stderr": "",
+        "duration_ms": 12,
+    }
+
+
+def test_run_endpoint_explains_unsupported_repository(client):
+    response = client.post("/github/octo/unknown/run")
+
+    assert response.status_code == 422
+    assert "root-level main.py" in response.json()["detail"]
+
+
+def test_run_endpoint_reports_unavailable_runner(client, monkeypatch):
+    def unavailable(_script):
+        raise main.RunnerUnavailable()
+
+    monkeypatch.setattr(main, "run_python_script", unavailable)
+
+    response = client.post("/github/octo/demo/run")
+
+    assert response.status_code == 503
+    assert "runner is unavailable" in response.json()["detail"]
+
+
+def test_run_endpoint_reports_runner_capacity(client, monkeypatch):
+    def busy(_script):
+        raise main.RunnerBusy()
+
+    monkeypatch.setattr(main, "run_python_script", busy)
+
+    response = client.post("/github/octo/demo/run")
+
+    assert response.status_code == 429
+    assert "try again shortly" in response.json()["detail"]
 
 
 def test_directory_on_file_route_returns_400(client):

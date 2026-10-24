@@ -36,3 +36,33 @@ export async function apiGet(endpoint) {
 
   return data;
 }
+
+export async function apiPost(endpoint) {
+  let response;
+
+  try {
+    response = await fetch(`${API_URL}${endpoint}`, { method: "POST" });
+  } catch {
+    throw new Error("Could not connect to the CodeRunner backend.");
+  }
+
+  let data = null;
+
+  try {
+    data = await response.json();
+  } catch {
+    // Non-JSON response; handled below.
+  }
+
+  if (!response.ok) {
+    const message =
+      (data && (data.detail || data.error)) ||
+      `Request failed (${response.status}).`;
+
+    throw new Error(
+      typeof message === "string" ? message : "Request failed."
+    );
+  }
+
+  return data;
+}

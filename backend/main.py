@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -7,6 +9,7 @@ from services.github_service import (
     get_repository_contents,
     get_repository_file,
 )
+from services.execution_service import RunnerBusy, RunnerUnavailable, run_python_script
 
 
 app = FastAPI(title="CodeRunner API")
@@ -174,4 +177,56 @@ async def repository_file(
         "size": data["size"],
         "content": data["decoded_content"],
         "url": data["html_url"],
+    }
+
+
+@app.post("/github/{owner}/{repo}/run")
+async def run_repository(owner: str, repo: str):
+    """Run a repository's root main.py using the restricted Python runner."""
+    try:
+        data = await get_repository_file(owner, repo, "main.py")
+    except GitHubAPIError as error:
+        _raise_http_error(error)
+
+    if data is None:
+        raise HTTPException(
+            status_code=422,
+            detail="This first version only runs repositories with a root-level main.py.",
+        )
+
+    if not isinstance(data, dict) or data.get("type") != "file":
+        raise HTTPException(
+            status_code=422,
+            detail="This first version only runs repositories with a root-level main.py.",
+        )
+
+    if data.get("is_binary") or data.get("decoded_content") is None:
+        raise HTTPException(
+            status_code=415,
+            detail="The root-level main.py file must be UTF-8 text.",
+        )
+
+    try:
+        result = await asyncio.to_thread(
+            run_python_script,
+            data["decoded_content"],
+        )
+    except RunnerUnavailable as error:
+        raise HTTPException(
+            status_code=503,
+            detail="CodeRunner's Python runner is unavailable. Make sure Docker is running and the Python image has been pulled.",
+        ) from error
+    except RunnerBusy as error:
+        raise HTTPException(
+            status_code=429,
+            detail="CodeRunner is running its maximum number of projects. Please try again shortly.",
+        ) from error
+
+    return {
+        "repository": f"{owner}/{repo}",
+        "status": result.status,
+        "exit_code": result.exit_code,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "duration_ms": result.duration_ms,
     }

@@ -18,6 +18,7 @@ The long-term goal is to let developers explore projects and eventually run supp
 - Readable error messages for missing repositories, rate limits, and GitHub outages.
 - Optional GitHub token support for higher API rate limits.
 - Automated backend tests that run without network access.
+- Run a repository's root-level `main.py` with Python's standard library in a restricted Docker container.
 
 ### Planned
 
@@ -196,6 +197,7 @@ If the frontend runs on a different origin than `http://localhost:5173`, add tha
 | GET | `/github/{owner}/{repo}/contents` | List root-level repository contents |
 | GET | `/github/{owner}/{repo}/directory/{path}` | List any directory; an empty path lists the root |
 | GET | `/github/{owner}/{repo}/file/{file_path}` | Retrieve an individual file |
+| POST | `/github/{owner}/{repo}/run` | Run the repository's root-level `main.py` |
 
 Errors are returned as JSON in the form `{"detail": "message"}` with a matching HTTP status code:
 
@@ -205,7 +207,9 @@ Errors are returned as JSON in the form `{"detail": "message"}` with a matching 
 | 404 | Repository, directory or file not found |
 | 413 | File too large for GitHub to return inline (over 1 MB) |
 | 415 | Binary file, which cannot be shown as text |
-| 429 | GitHub rate limit reached |
+| 422 | Repository does not contain a supported root-level `main.py` |
+| 429 | GitHub rate limit reached or the runner is at capacity |
+| 503 | Python runner is unavailable |
 | 502 | GitHub unreachable, returned an error, or rejected the token |
 
 For example, to retrieve repository metadata:
@@ -227,6 +231,16 @@ http://127.0.0.1:8000/github/octocat/Hello-World/file/README
 ```
 
 Public repositories work out of the box. Private repositories are only reachable if the backend was started with a token that has access to them.
+
+### Running a Python script
+
+The first execution slice supports a public repository with a root-level `main.py`. It runs the script with the Python standard library only; dependencies are not installed. The backend host must have Docker installed and running, and the image must be pulled once before use:
+
+```bash
+docker pull python:3.12-slim
+```
+
+CodeRunner uses that fixed Python image without pulling during a run, disables container networking, mounts no host files, enforces CPU, memory, process, time, and output limits, and allows at most two concurrent runs. Review [the execution design](docs/execution-design.md) for the scope and security boundaries. Docker is not a guarantee that arbitrary code is harmless.
 
 ## Running the Tests
 
