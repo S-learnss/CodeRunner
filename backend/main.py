@@ -93,6 +93,7 @@ async def repository(owner: str, repo: str):
         "stars": data["stargazers_count"],
         "forks": data["forks_count"],
         "url": data["html_url"],
+        "default_branch": data["default_branch"],
     }
 
 

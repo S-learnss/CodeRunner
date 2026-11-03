@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { parseGitHubUrl } from "./utils/github";
 import RepositoryExplorer from "./components/RepositoryExplorer";
+import StaticPreview from "./components/StaticPreview";
 import { apiGet, apiPost } from "./utils/api";
 
 function App() {
@@ -124,6 +125,8 @@ function App() {
               library. The first version does not install packages.
             </p>
           </div>
+
+          <StaticPreview repository={repository} />
 
           {runError && <p role="alert">{runError}</p>}
 

@@ -19,6 +19,9 @@ The long-term goal is to let developers explore projects and eventually run supp
 - Optional GitHub token support for higher API rate limits.
 - Automated backend tests that run without network access.
 - Run a repository's root-level `main.py` with Python's standard library in a restricted Docker container.
+- Preview a repository's root-level `index.html` in a sandboxed iframe, including relative static assets.
+
+The static preview supports plain HTML, CSS, and JavaScript files already present in the repository. It does not run a build tool or start a web server.
 
 ### Planned
 
@@ -79,7 +82,7 @@ CodeRunner/
 - Node.js and npm
 - Git
 
-Docker will be required when container execution is introduced.
+Docker is required for Python container execution.
 
 ## Getting Started
 
