@@ -1,4 +1,7 @@
+import base64
 import io
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -12,7 +15,7 @@ from services.execution_service import RunnerUnavailable, run_python_script
 
 class FakeProcess:
     def __init__(self, stdout=b"hello\n", stderr=b"", exit_code=0):
-        self.stdin = RecordingInput()
+        self.stdin = io.BytesIO()
         self.stdout = io.BytesIO(stdout)
         self.stderr = io.BytesIO(stderr)
         self.exit_code = exit_code
@@ -28,20 +31,10 @@ class FakeProcess:
         self.killed = True
 
 
-class RecordingInput(io.BytesIO):
-    def __init__(self):
-        super().__init__()
-        self.payload = b""
-
-    def close(self):
-        self.payload = self.getvalue()
-        super().close()
-
-
 def test_command_applies_container_restrictions(monkeypatch):
     monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
 
-    command = execution_service._docker_command("coderun-test")
+    command = execution_service._docker_command("coderun-test", b"print('ok')")
 
     assert "--network=none" in command
     assert "--pull=never" in command
@@ -53,18 +46,49 @@ def test_command_applies_container_restrictions(monkeypatch):
     assert "--security-opt=no-new-privileges" in command
     assert "--user=65534:65534" in command
     assert not any("--mount" in part or part == "-v" for part in command)
-    assert command[-4:] == ["python", "-I", "-B", "-"]
+    assert "--interactive" not in command
+    encoded = base64.b64encode(b"print('ok')").decode("ascii")
+    assert f"--env=CODERUN_SOURCE_B64={encoded}" in command
+    assert command[-3:-1] == ["-B", "-c"]
+    assert "CODERUN_SOURCE_B64" in command[-1]
 
 
-def test_script_is_sent_to_stdin_and_result_is_returned(monkeypatch):
+def test_embedded_script_wrapper_executes_source(monkeypatch):
+    monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
+    source = "print('Hello from CodeRunner')\nprint(6 * 7)"
+    command = execution_service._docker_command("coderun-test", source.encode())
+    env = os.environ.copy()
+    env["CODERUN_SOURCE_B64"] = base64.b64encode(source.encode()).decode("ascii")
+
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", "-c", command[-1]],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=3,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == "Hello from CodeRunner\n42\n"
+    assert "CODERUN_SOURCE_B64" not in result.stderr
+
+
+def test_script_is_passed_to_container_without_stdin(monkeypatch):
     process = FakeProcess()
     monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
-    monkeypatch.setattr(execution_service.subprocess, "Popen", lambda *a, **k: process)
+
+    def fake_popen(command, **kwargs):
+        expected = base64.b64encode(b"print('hello')").decode("ascii")
+        assert f"--env=CODERUN_SOURCE_B64={expected}" in command
+        assert kwargs["stdin"] == execution_service.subprocess.DEVNULL
+        return process
+
+    monkeypatch.setattr(execution_service.subprocess, "Popen", fake_popen)
     monkeypatch.setattr(execution_service.subprocess, "run", lambda *a, **k: None)
 
     result = run_python_script("print('hello')")
 
-    assert process.stdin.payload == b"print('hello')"
     assert result.status == "completed"
     assert result.exit_code == 0
     assert result.stdout == "hello\n"
@@ -127,7 +151,7 @@ def test_oversized_script_is_rejected_before_launch(monkeypatch):
     result = run_python_script("x" * (execution_service.MAX_SCRIPT_BYTES + 1))
 
     assert result.status == "failed"
-    assert "64 KiB" in result.stderr
+    assert "12 KiB" in result.stderr
 
 
 def test_missing_docker_is_reported(monkeypatch):

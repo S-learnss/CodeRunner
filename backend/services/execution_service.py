@@ -1,5 +1,6 @@
 """Run a small Python entry point in a constrained Docker container."""
 
+import base64
 import shutil
 import subprocess
 import threading
@@ -10,7 +11,7 @@ from dataclasses import dataclass
 
 PYTHON_IMAGE = "python:3.12-slim"
 RUN_TIMEOUT_SECONDS = 10
-MAX_SCRIPT_BYTES = 64 * 1024
+MAX_SCRIPT_BYTES = 12 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024
 MAX_CONCURRENT_RUNS = 2
 _RUN_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
@@ -33,10 +34,19 @@ class ExecutionResult:
     duration_ms: int
 
 
-def _docker_command(container_name: str) -> list[str]:
+def _docker_command(container_name: str, script_bytes: bytes) -> list[str]:
     docker = shutil.which("docker")
     if not docker:
         raise RunnerUnavailable("Docker is not installed or is not on PATH.")
+
+    encoded_script = base64.b64encode(script_bytes).decode("ascii")
+    script_runner = (
+        "import base64,os,sys;"
+        "source=base64.b64decode(os.environ.pop('CODERUN_SOURCE_B64')).decode('utf-8');"
+        "sys.argv=['main.py'];"
+        "exec(compile(source,'main.py','exec'),"
+        "{'__name__':'__main__','__file__':'main.py'})"
+    )
 
     return [
         docker,
@@ -44,7 +54,6 @@ def _docker_command(container_name: str) -> list[str]:
         "--rm",
         "--pull=never",
         f"--name={container_name}",
-        "--interactive",
         "--network=none",
         "--read-only",
         "--tmpfs=/tmp:rw,noexec,nosuid,size=16m",
@@ -56,24 +65,26 @@ def _docker_command(container_name: str) -> list[str]:
         "--security-opt=no-new-privileges",
         "--user=65534:65534",
         "--env=PYTHONDONTWRITEBYTECODE=1",
+        f"--env=CODERUN_SOURCE_B64={encoded_script}",
         PYTHON_IMAGE,
         "python",
         "-I",
         "-B",
-        "-",
+        "-c",
+        script_runner,
     ]
 
 
 def run_python_script(script: str) -> ExecutionResult:
-    """Feed root main.py on stdin; no repository files or host paths are mounted."""
+    """Run root main.py without mounting repository or host files."""
     script_bytes = script.encode("utf-8")
     if len(script_bytes) > MAX_SCRIPT_BYTES:
         return ExecutionResult(
-            "failed", None, "", "main.py exceeds the 64 KiB limit.", 0
+            "failed", None, "", "main.py exceeds the 12 KiB limit.", 0
         )
 
     container_name = f"coderun-{uuid.uuid4().hex}"
-    command = _docker_command(container_name)
+    command = _docker_command(container_name, script_bytes)
     if not _RUN_SLOTS.acquire(blocking=False):
         raise RunnerBusy("The Python runner is busy.")
 
@@ -105,7 +116,7 @@ def _run_container(
     try:
         process = subprocess.Popen(
             command,
-            stdin=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=False,
@@ -142,21 +153,6 @@ def _run_container(
     for reader in readers:
         reader.start()
 
-    def send_script():
-        try:
-            process.stdin.write(script_bytes)
-            process.stdin.flush()
-        except (BrokenPipeError, OSError):
-            pass
-        finally:
-            try:
-                process.stdin.close()
-            except OSError:
-                pass
-
-    writer = threading.Thread(target=send_script, daemon=True)
-    writer.start()
-
     timed_out = False
     output_limited = False
 
@@ -179,7 +175,6 @@ def _run_container(
 
     exit_code = process.wait()
     _stop_container(command[0], container_name)
-    writer.join(timeout=1)
     for reader in readers:
         reader.join(timeout=1)
     output_limited = output_limited or output_limit_reached.is_set()

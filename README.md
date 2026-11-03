@@ -234,7 +234,7 @@ Public repositories work out of the box. Private repositories are only reachable
 
 ### Running a Python script
 
-The first execution slice supports a public repository with a root-level `main.py`. It runs the script with the Python standard library only; dependencies are not installed. The backend host must have Docker installed and running, and the image must be pulled once before use:
+The first execution slice supports a public repository with a root-level `main.py` up to 12 KiB. It runs the script with the Python standard library only; dependencies are not installed. The backend host must have Docker installed and running, and the image must be pulled once before use:
 
 ```bash
 docker pull python:3.12-slim

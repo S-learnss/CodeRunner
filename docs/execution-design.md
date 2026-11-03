@@ -18,7 +18,7 @@ This intentionally narrow package policy can be revisited after the execution bo
 
 1. The frontend asks the existing backend to run a selected repository.
 2. The backend fetches the root-level `main.py` from GitHub and checks its size and text encoding.
-3. The backend starts a fixed Python runner image and sends the script over standard input. No repository files or host directories are mounted.
+3. The backend starts a fixed Python runner image and passes the UTF-8 script as a bounded, base64 encoded container environment value. No repository files or host directories are mounted.
 4. The container runs the script with a short-lived writable temporary filesystem.
 5. The backend captures stdout, stderr, exit code, and duration, enforces limits, and removes the container and its temporary storage on every exit path.
 6. The API returns a structured result. The frontend displays output and a student-readable status message.
@@ -42,7 +42,7 @@ Suggested starting limits for a local prototype: 1 CPU, 256 MiB memory, 32 proce
 
 ## Input and API behavior
 
-- Reject `main.py` files larger than 64 KiB and files that are not UTF-8 text.
+- Reject `main.py` files larger than 12 KiB and files that are not UTF-8 text.
 - Return a run identifier, status (`completed`, `failed`, `timed_out`, or `unsupported`), exit code when available, stdout, stderr, and duration.
 - Distinguish an application error (non-zero exit) from a CodeRunner setup or infrastructure error.
 - Explain unsupported projects and limit violations in direct language; do not expose tokens, host paths, or raw container control details.
