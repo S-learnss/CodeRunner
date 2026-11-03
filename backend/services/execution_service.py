@@ -1,6 +1,5 @@
 """Run a small Python entry point in a constrained Docker container."""
 
-import queue
 import shutil
 import subprocess
 import threading
@@ -114,17 +113,27 @@ def _run_container(
     except OSError as error:
         raise RunnerUnavailable("Could not start Docker.") from error
 
-    chunks: queue.Queue[tuple[str, bytes | None]] = queue.Queue(maxsize=16)
+    output = {"stdout": bytearray(), "stderr": bytearray()}
+    output_lock = threading.Lock()
+    output_size = 0
+    output_limit_reached = threading.Event()
 
     def drain(name: str, stream):
+        nonlocal output_size
         try:
             while True:
                 chunk = stream.read(4096)
                 if not chunk:
                     break
-                chunks.put((name, chunk))
-        finally:
-            chunks.put((name, None))
+                with output_lock:
+                    remaining = MAX_OUTPUT_BYTES - output_size
+                    if len(chunk) > remaining:
+                        output_limit_reached.set()
+                    kept = chunk[:max(0, remaining)]
+                    output[name].extend(kept)
+                    output_size += len(kept)
+        except OSError:
+            pass
 
     readers = [
         threading.Thread(target=drain, args=("stdout", process.stdout), daemon=True),
@@ -133,51 +142,47 @@ def _run_container(
     for reader in readers:
         reader.start()
 
-    try:
-        process.stdin.write(script_bytes)
-        process.stdin.close()
-    except (BrokenPipeError, OSError):
-        pass
+    def send_script():
+        try:
+            process.stdin.write(script_bytes)
+            process.stdin.flush()
+        except (BrokenPipeError, OSError):
+            pass
+        finally:
+            try:
+                process.stdin.close()
+            except OSError:
+                pass
 
-    output = {"stdout": bytearray(), "stderr": bytearray()}
-    output_size = 0
-    finished_streams = 0
+    writer = threading.Thread(target=send_script, daemon=True)
+    writer.start()
+
     timed_out = False
     output_limited = False
 
-    while process.poll() is None or finished_streams < 2:
-        elapsed = time.monotonic() - started
-        if elapsed >= RUN_TIMEOUT_SECONDS and process.poll() is None:
+    while process.poll() is None:
+        if output_limit_reached.is_set():
+            output_limited = True
+            _stop_container(command[0], container_name)
+            if process.poll() is None:
+                process.kill()
+            break
+
+        if time.monotonic() - started >= RUN_TIMEOUT_SECONDS:
             timed_out = True
             _stop_container(command[0], container_name)
             if process.poll() is None:
                 process.kill()
+            break
 
-        try:
-            name, chunk = chunks.get(timeout=0.05)
-        except queue.Empty:
-            continue
-
-        if chunk is None:
-            finished_streams += 1
-            continue
-
-        remaining = MAX_OUTPUT_BYTES - output_size
-        if len(chunk) > remaining:
-            output_limited = True
-        kept = chunk[:max(0, remaining)]
-        output[name].extend(kept)
-        output_size += len(kept)
-
-        if output_limited and process.poll() is None:
-            _stop_container(command[0], container_name)
-            if process.poll() is None:
-                process.kill()
+        time.sleep(0.05)
 
     exit_code = process.wait()
     _stop_container(command[0], container_name)
+    writer.join(timeout=1)
     for reader in readers:
-        reader.join()
+        reader.join(timeout=1)
+    output_limited = output_limited or output_limit_reached.is_set()
 
     if exit_code in (125, 126, 127):
         raise RunnerUnavailable(
