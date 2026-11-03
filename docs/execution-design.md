@@ -8,7 +8,8 @@ Let a student try a small GitHub project without installing its toolchain. The f
 
 - Public GitHub repository with a root-level `main.py`.
 - Python standard library only for the initial slice. Do not install packages or run repository-provided setup commands.
-- Run a fixed command equivalent to `python -I /workspace/main.py`; never use a command, Docker option, or image name supplied by the repository.
+- The runner receives only `main.py`; imports from other files in the repository are unsupported.
+- Run a fixed Python wrapper command that executes the fetched source as `main.py`; never use a command, Docker option, or image name supplied by the repository.
 - No network access, listening ports, interactive input, background services, GUI, database, GPU, or hardware access.
 - Unsupported repositories get a plain explanation and guidance; do not guess how to launch them.
 
@@ -36,7 +37,7 @@ Each run uses a fresh container and a fixed command. Start with these conservati
 - Cap combined stdout and stderr; terminate the run when the cap is exceeded.
 - Limit the local backend to two concurrent runs; report a clear retry message when both slots are in use.
 - No credentials, host environment variables, home directory, or unrelated host paths passed to the container.
-- Always stop and remove the container and temporary snapshot, including on timeout, cancellation, or backend errors.
+- Always stop and remove the container and its temporary storage, including on timeout or backend errors.
 
 Suggested starting limits for a local prototype: 1 CPU, 256 MiB memory, 32 processes, 10 seconds, and 64 KiB combined output. Validate these against representative coursework before treating them as final product defaults. A Docker daemon is a privileged host boundary; this design reduces exposure but is not a claim that hostile code is harmless.
 
@@ -57,7 +58,7 @@ Static-site preview, dependency installation, Node.js, compilation, web servers 
 
 - Confirm whether students should eventually be able to supply dependencies. The first slice assumes no third-party packages.
 - Decide where Docker will run in deployment. A local Docker daemon is acceptable for a developer prototype, but a public hosted service needs a separately reviewed execution service and stronger tenant isolation.
-- Confirm the source-size and file-count limits against the expected coursework repositories.
+- Confirm the source-size limit against the expected coursework repositories.
 
 ## Acceptance checks
 

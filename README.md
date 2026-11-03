@@ -41,7 +41,7 @@ The long-term goal is to let developers explore projects and eventually run supp
 | pytest | Backend tests |
 | GitHub REST API | Repository metadata and file retrieval |
 | Git | Version control |
-| Docker | Planned isolated project execution |
+| Docker | Restricted single-file Python execution |
 
 ## Project Structure
 
@@ -251,6 +251,14 @@ python -m pip install pytest
 python -m pytest
 ```
 
+Docker integration tests run separately and require Docker plus the Python runner image. The GitHub Actions workflow runs these tests on an Ubuntu runner. To run them locally in PowerShell:
+
+```powershell
+$env:CODERUN_DOCKER_INTEGRATION = "1"
+python -m pytest tests/test_execution_docker.py
+Remove-Item Env:CODERUN_DOCKER_INTEGRATION
+```
+
 To check the frontend:
 
 ```bash
@@ -263,10 +271,11 @@ npm run build
 
 1. ~~Complete nested directory navigation.~~
 2. ~~Build a dedicated source-code viewer.~~
-3. Improve API validation and expand test coverage.
-4. Introduce safe, isolated Docker-based application execution.
+3. Harden and expand the Python execution slice, including Docker integration tests.
+4. Add sandboxed preview for static websites.
 5. Add automated repository analysis.
-6. Expand documentation.
+6. Expand execution support to more project types.
+7. Expand documentation.
 
 ## Learning Objectives
 

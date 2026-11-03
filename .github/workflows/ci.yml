@@ -34,6 +34,33 @@ jobs:
         working-directory: backend
         run: python -m pytest
 
+  backend-docker:
+    name: Docker runner integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CODERUN_DOCKER_INTEGRATION: "1"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt pytest
+
+      - name: Check Docker and pull runner image
+        run: |
+          docker info
+          docker pull python:3.12-slim
+
+      - name: Run Docker runner integration tests
+        working-directory: backend
+        run: python -m pytest tests/test_execution_docker.py
+
   frontend:
     name: Frontend checks
     runs-on: ubuntu-latest
