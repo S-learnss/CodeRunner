@@ -48,20 +48,23 @@ function StaticPreview({ repository }) {
   }
 
   return (
-    <section aria-label="Static site preview">
-      <h2>Static site preview</h2>
-      <p>Previews a root-level index.html with its relative static assets.</p>
-      <button onClick={loadPreview} disabled={loading}>
+    <section className="tool-card preview-card" aria-labelledby="preview-title">
+      <p className="eyebrow">WEBSITE PREVIEW</p>
+      <h3 id="preview-title">See the project in your browser</h3>
+      <p className="tool-card__description">
+        Opens a root-level <code>index.html</code> with its existing styles and scripts.
+      </p>
+      <button className="button button--secondary" onClick={loadPreview} disabled={loading}>
         {loading ? "Loading preview..." : "Preview website"}
       </button>
-      {error && <p role="alert">{error}</p>}
+      {error && <p className="message message--error" role="alert">{error}</p>}
       {document && (
         <iframe
+          className="site-preview"
           title={`${repository.name} static site preview`}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
           srcDoc={document}
-          style={{ width: "100%", minHeight: "480px", border: "1px solid #888" }}
         />
       )}
     </section>

@@ -81,49 +81,54 @@ function RepositoryExplorer({ owner, repo }) {
   const segments = currentPath ? currentPath.split("/") : [];
 
   return (
-    <section>
-      <h2>Repository Explorer</h2>
+    <section className="explorer-panel" aria-labelledby="explorer-title">
+      <div className="explorer-panel__header">
+        <div>
+          <p className="eyebrow">BROWSE FILES</p>
+          <h2 id="explorer-title">Repository explorer</h2>
+        </div>
+        <nav className="breadcrumbs" aria-label="Current path">
+          <button onClick={() => loadDirectory("")} disabled={loading}>
+            {repo}
+          </button>
 
-      <nav aria-label="Current path">
-        <button onClick={() => loadDirectory("")} disabled={loading}>
-          {repo}
-        </button>
+          {segments.map((segment, index) => {
+            const segmentPath = segments.slice(0, index + 1).join("/");
 
-        {segments.map((segment, index) => {
-          const segmentPath = segments.slice(0, index + 1).join("/");
-
-          return (
-            <span key={segmentPath}>
-              {" / "}
-              <button
-                onClick={() => loadDirectory(segmentPath)}
-                disabled={loading || segmentPath === currentPath}
-              >
-                {segment}
-              </button>
-            </span>
-          );
-        })}
-      </nav>
+            return (
+              <span className="breadcrumbs__segment" key={segmentPath}>
+                <span aria-hidden="true">/</span>
+                <button
+                  onClick={() => loadDirectory(segmentPath)}
+                  disabled={loading || segmentPath === currentPath}
+                >
+                  {segment}
+                </button>
+              </span>
+            );
+          })}
+        </nav>
+      </div>
 
       {currentPath && (
-        <button onClick={goUp} disabled={loading}>
-          Go Up
+        <button className="button button--quiet explorer-panel__up" onClick={goUp} disabled={loading}>
+          ← Up one folder
         </button>
       )}
 
-      {loading && <p>Loading...</p>}
+      {loading && <p className="loading-message" role="status">Loading files…</p>}
 
-      {error && <p role="alert">{error}</p>}
+      {error && <p className="message message--error" role="alert">{error}</p>}
 
       {!loading && !error && contents.length === 0 && (
-        <p>This directory is empty.</p>
+        <p className="empty-message">This folder is empty.</p>
       )}
 
       {!loading && !error && (
-        <div>
+        <div className="repository-list" aria-label="Repository files">
           {contents.map((item) => (
             <button
+              className="repository-list__item"
               key={item.path}
               onClick={() => handleItemClick(item)}
               disabled={fileLoading}
@@ -133,15 +138,19 @@ function RepositoryExplorer({ owner, repo }) {
                   : undefined
               }
             >
-              {item.type === "dir" ? "📁" : "📄"} {item.name}
+              <span className={`repository-list__kind repository-list__kind--${item.type}`}>
+                {item.type === "dir" ? "FOLDER" : "FILE"}
+              </span>
+              <span className="repository-list__name">{item.name}</span>
+              {item.type === "dir" && <span className="repository-list__arrow" aria-hidden="true">→</span>}
             </button>
           ))}
         </div>
       )}
 
-      {fileLoading && <p>Opening file...</p>}
+      {fileLoading && <p className="loading-message" role="status">Opening file…</p>}
 
-      {fileError && <p role="alert">{fileError}</p>}
+      {fileError && <p className="message message--error" role="alert">{fileError}</p>}
 
       {selectedFile && (
         <FileViewer

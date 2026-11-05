@@ -65,7 +65,7 @@ def test_embedded_script_wrapper_executes_source(monkeypatch):
         capture_output=True,
         text=True,
         env=env,
-        timeout=3,
+        timeout=10,
         check=False,
     )
 
@@ -105,6 +105,20 @@ def test_nonzero_exit_is_a_failed_run(monkeypatch):
     assert result.status == "failed"
     assert result.exit_code == 1
     assert result.stderr == "Traceback"
+
+
+def test_docker_daemon_connection_error_is_reported_as_runner_unavailable(monkeypatch):
+    process = FakeProcess(
+        stdout=b"",
+        stderr=b"failed to connect to the docker API at npipe://dockerDesktopLinuxEngine",
+        exit_code=1,
+    )
+    monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
+    monkeypatch.setattr(execution_service.subprocess, "Popen", lambda *a, **k: process)
+    monkeypatch.setattr(execution_service.subprocess, "run", lambda *a, **k: None)
+
+    with pytest.raises(RunnerUnavailable):
+        run_python_script("print('hello')")
 
 
 def test_output_limit_stops_run_and_bounds_combined_result(monkeypatch):

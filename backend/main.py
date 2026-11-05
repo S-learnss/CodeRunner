@@ -215,7 +215,7 @@ async def run_repository(owner: str, repo: str):
     except RunnerUnavailable as error:
         raise HTTPException(
             status_code=503,
-            detail="CodeRunner's Python runner is unavailable. Make sure Docker is running and the Python image has been pulled.",
+            detail="The Python runner is unavailable. Start Docker Desktop and make sure the Python image has been downloaded.",
         ) from error
     except RunnerBusy as error:
         raise HTTPException(

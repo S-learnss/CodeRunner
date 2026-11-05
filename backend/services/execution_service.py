@@ -179,7 +179,20 @@ def _run_container(
         reader.join(timeout=1)
     output_limited = output_limited or output_limit_reached.is_set()
 
-    if exit_code in (125, 126, 127):
+    docker_diagnostic = bytes(output["stderr"]).lower()
+    daemon_unavailable = (
+        not output["stdout"]
+        and any(
+            marker in docker_diagnostic
+            for marker in (
+                b"failed to connect to the docker api at",
+                b"cannot connect to the docker daemon at",
+                b"error during connect:",
+            )
+        )
+    )
+
+    if exit_code in (125, 126, 127) or daemon_unavailable:
         raise RunnerUnavailable(
             "Could not start the Python container. Check that Docker is running."
         )

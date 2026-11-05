@@ -3,6 +3,7 @@ import { parseGitHubUrl } from "./utils/github";
 import RepositoryExplorer from "./components/RepositoryExplorer";
 import StaticPreview from "./components/StaticPreview";
 import { apiGet, apiPost } from "./utils/api";
+import "./App.css";
 
 function App() {
   const [githubUrl, setGithubUrl] = useState("");
@@ -61,105 +62,131 @@ function App() {
   }
 
   return (
-    <main>
-      <h1>CodeRunner</h1>
+    <div className="app-shell">
+      <header className="site-header">
+        <a className="brand" href="#top" aria-label="CodeRunner home">
+          <span className="brand-mark" aria-hidden="true">C</span>
+          <span>CodeRunner</span>
+        </a>
+        <span className="site-header__note">A simpler way to explore code</span>
+      </header>
 
-      <p>
-        Explore a GitHub repository through CodeRunner.
-      </p>
-
-      <div>
-        <input
-          type="text"
-          value={githubUrl}
-          onChange={(event) => setGithubUrl(event.target.value)}
-          placeholder="https://github.com/user/repository"
-        />
-
-        <button onClick={exploreRepository} disabled={loading || running}>
-          {loading ? "Exploring..." : "Explore Repository"}
-        </button>
-      </div>
-
-      {error && <p>{error}</p>}
-
-      {repository && (
-        <section>
-          <h2>{repository.name}</h2>
-
-          <p>
-            <strong>Owner:</strong> {repository.owner}
+      <main id="top" className="page-content">
+        <section className="welcome-section" aria-labelledby="welcome-title">
+          <p className="eyebrow">LEARN BY EXPLORING</p>
+          <h1 id="welcome-title">Try a project before setting it up.</h1>
+          <p className="welcome-copy">
+            Browse a public GitHub repository, preview a simple website, or run a
+            small Python script in a restricted container.
           </p>
 
-          <p>
-            <strong>Language:</strong>{" "}
-            {repository.language || "Not specified"}
-          </p>
-
-          <p>
-            <strong>Stars:</strong> {repository.stars}
-          </p>
-
-          <p>
-            <strong>Forks:</strong> {repository.forks}
-          </p>
-
-          <p>
-            {repository.description || "No description available."}
-          </p>
-
-          <a
-            href={repository.url}
-            target="_blank"
-            rel="noreferrer"
+          <form
+            className="repository-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              exploreRepository();
+            }}
           >
-            View on GitHub
-          </a>
-
-          <div>
-            <button onClick={runRepository} disabled={running}>
-              {running ? "Running..." : "Run main.py"}
-            </button>
-            <p>
-              Runs the repository's root-level main.py with Python's standard
-              library. The first version does not install packages.
+            <label htmlFor="repository-url">GitHub repository URL</label>
+            <div className="repository-form__controls">
+              <input
+                id="repository-url"
+                type="text"
+                inputMode="url"
+                autoComplete="url"
+                value={githubUrl}
+                onChange={(event) => setGithubUrl(event.target.value)}
+                placeholder="https://github.com/owner/repository"
+                aria-describedby="repository-hint"
+              />
+              <button className="button button--primary" type="submit" disabled={loading || running}>
+                {loading ? "Loading repository…" : "Explore repository"}
+              </button>
+            </div>
+            <p id="repository-hint" className="field-hint">
+              Start with a public repository URL. No downloads or setup needed.
             </p>
-          </div>
+          </form>
 
-          <StaticPreview repository={repository} />
-
-          {runError && <p role="alert">{runError}</p>}
-
-          {runResult && (
-            <section aria-live="polite">
-              <h3>
-                Run {runResult.status}
-                {runResult.exit_code !== null && ` (exit code ${runResult.exit_code})`}
-              </h3>
-              <p>Finished in {runResult.duration_ms} ms.</p>
-              {runResult.stdout && (
-                <div>
-                  <h4>Output</h4>
-                  <pre>{runResult.stdout}</pre>
-                </div>
-              )}
-              {runResult.stderr && (
-                <div>
-                  <h4>Error details</h4>
-                  <pre>{runResult.stderr}</pre>
-                </div>
-              )}
-            </section>
-          )}
-
-          {/* Repository Explorer */}
-          <RepositoryExplorer
-            owner={repository.owner}
-            repo={repository.name}
-          />
+          {error && <p className="message message--error" role="alert">{error}</p>}
         </section>
-      )}
-    </main>
+
+        {repository && (
+          <div className="repository-workspace">
+            <section className="repository-summary" aria-labelledby="repository-title">
+              <div className="repository-summary__main">
+                <p className="eyebrow">REPOSITORY</p>
+                <h2 id="repository-title">{repository.name}</h2>
+                <p className="repository-owner">by {repository.owner}</p>
+                <p className="repository-description">
+                  {repository.description || "This repository has no description yet."}
+                </p>
+              </div>
+              <div className="repository-summary__aside">
+                <div className="metadata-list" aria-label="Repository details">
+                  <span>{repository.language || "Language not specified"}</span>
+                  <span>{repository.stars} stars</span>
+                  <span>{repository.forks} forks</span>
+                </div>
+                <a className="text-link" href={repository.url} target="_blank" rel="noreferrer">
+                  View on GitHub <span aria-hidden="true">↗</span>
+                </a>
+              </div>
+            </section>
+
+            <div className="feature-grid">
+              <section className="tool-card run-card" aria-labelledby="run-title">
+                <p className="eyebrow">RUN A SCRIPT</p>
+                <h3 id="run-title">Try the Python entry point</h3>
+                <p className="tool-card__description">
+                  Runs the repository&apos;s root-level <code>main.py</code> using
+                  Python&apos;s standard library. Packages are not installed.
+                </p>
+                <button className="button button--primary" onClick={runRepository} disabled={running}>
+                  {running ? "Running script…" : "Run main.py"}
+                </button>
+                {runError && <p className="message message--error" role="alert">{runError}</p>}
+                {runResult && (
+                  <section className={`run-result run-result--${runResult.status}`} aria-live="polite">
+                    <div className="run-result__header">
+                      <h4>Run {runResult.status.replaceAll("_", " ")}</h4>
+                      <span>
+                        {runResult.exit_code !== null ? `Exit code ${runResult.exit_code}` : "No exit code"}
+                        {` · ${runResult.duration_ms} ms`}
+                      </span>
+                    </div>
+                    {runResult.stdout && (
+                      <div className="run-output">
+                        <h5>Output</h5>
+                        <pre>{runResult.stdout}</pre>
+                      </div>
+                    )}
+                    {runResult.stderr && (
+                      <div className="run-output run-output--error">
+                        <h5>Error details</h5>
+                        <pre>{runResult.stderr}</pre>
+                      </div>
+                    )}
+                    {!runResult.stdout && !runResult.stderr && (
+                      <p className="run-result__empty">The script finished without printing output.</p>
+                    )}
+                  </section>
+                )}
+              </section>
+
+              <StaticPreview repository={repository} />
+            </div>
+
+            <RepositoryExplorer owner={repository.owner} repo={repository.name} />
+          </div>
+        )}
+      </main>
+
+      <footer className="site-footer">
+        <span>CodeRunner</span>
+        <span>Explore first. Set up later.</span>
+      </footer>
+    </div>
   );
 }
 
