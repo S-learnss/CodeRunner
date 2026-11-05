@@ -52,7 +52,7 @@ Suggested starting limits for a local prototype: 1 CPU, 256 MiB memory, 32 proce
 
 ## Not in the first slice
 
-Dependency installation, Node.js, compilation, web servers and exposed ports, GUI applications, databases, Docker Compose, GPU or hardware use, private repositories, and long-running or interactive processes. Static preview is a separate browser feature: it only loads a root-level `index.html` and is rendered in an iframe with sandboxing and a restrictive content policy; it does not use the Python runner or expose a server port.
+Dependency installation, Node.js, compilation, web servers and exposed ports, GUI applications, databases, Docker Compose, GPU or hardware use, private repositories, and long-running or interactive processes. Static preview is a separate browser feature: it only loads a root-level `index.html`, reads relative assets from jsDelivr's public GitHub mirror, and renders in an iframe with sandboxing and a restrictive content policy; it does not use the Python runner or expose a server port.
 
 ## Decisions before implementation
 

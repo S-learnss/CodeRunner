@@ -10,9 +10,9 @@ function buildPreviewDocument(html, repository) {
     .split("/")
     .map(encodeURIComponent)
     .join("/");
-  const rawBase = `https://raw.githubusercontent.com/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/${branchPath}/`;
-  const policy = "default-src 'none'; script-src 'unsafe-inline' https://raw.githubusercontent.com; style-src 'unsafe-inline' https://raw.githubusercontent.com; img-src data: https://raw.githubusercontent.com; font-src data: https://raw.githubusercontent.com; media-src https://raw.githubusercontent.com; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri https://raw.githubusercontent.com";
-  const injected = `<meta http-equiv="Content-Security-Policy" content="${policy}"><base href="${escapeAttribute(rawBase)}">`;
+  const assetBase = `https://cdn.jsdelivr.net/gh/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}@${branchPath}/`;
+  const policy = "default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://cdn.jsdelivr.net; img-src data: https://cdn.jsdelivr.net; font-src data: https://cdn.jsdelivr.net; media-src https://cdn.jsdelivr.net; connect-src 'none'; frame-src 'none'; object-src 'none'; form-action 'none'; base-uri https://cdn.jsdelivr.net";
+  const injected = `<meta http-equiv="Content-Security-Policy" content="${policy}"><base href="${escapeAttribute(assetBase)}">`;
   const head = /<head(?:\s[^>]*)?>/i;
 
   if (head.test(html)) {
@@ -37,7 +37,11 @@ function StaticPreview({ repository }) {
       const file = await apiGet(`${base}/file/${encodePath("index.html")}`);
       setDocument(buildPreviewDocument(file.content, repository));
     } catch (err) {
-      setError(err.message || "Could not load this repository's index.html.");
+      setError(
+        err.message === "File not found"
+          ? "This repository doesn't have a root-level index.html to preview."
+          : err.message || "Could not load this repository's index.html."
+      );
     } finally {
       setLoading(false);
     }

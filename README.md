@@ -21,7 +21,7 @@ The long-term goal is to let developers explore projects and eventually run supp
 - Run a repository's root-level `main.py` with Python's standard library in a restricted Docker container.
 - Preview a repository's root-level `index.html` in a sandboxed iframe, including relative static assets.
 
-The static preview supports plain HTML, CSS, and JavaScript files already present in the repository. It does not run a build tool or start a web server.
+The static preview supports plain HTML, CSS, and JavaScript files already present in the repository. Relative assets are served from jsDelivr's public GitHub mirror, so the repository must be public and available through that CDN. It does not run a build tool or start a web server.
 
 ### Planned
 
