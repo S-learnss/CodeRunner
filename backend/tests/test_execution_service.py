@@ -1,5 +1,6 @@
 import base64
 import io
+import json
 import os
 import subprocess
 import sys
@@ -34,7 +35,9 @@ class FakeProcess:
 def test_command_applies_container_restrictions(monkeypatch):
     monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
 
-    command = execution_service._docker_command("coderun-test", b"print('ok')")
+    command = execution_service._docker_command(
+        "coderun-test", {"main.py": "print('ok')"}
+    )
 
     assert "--network=none" in command
     assert "--pull=never" in command
@@ -47,18 +50,55 @@ def test_command_applies_container_restrictions(monkeypatch):
     assert "--user=65534:65534" in command
     assert not any("--mount" in part or part == "-v" for part in command)
     assert "--interactive" not in command
-    encoded = base64.b64encode(b"print('ok')").decode("ascii")
+    bundle = json.dumps(
+        {"main.py": "print('ok')"}, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    encoded = base64.b64encode(bundle).decode("ascii")
     assert f"--env=CODERUN_SOURCE_B64={encoded}" in command
     assert command[-3:-1] == ["-B", "-c"]
     assert "CODERUN_SOURCE_B64" in command[-1]
 
 
-def test_embedded_script_wrapper_executes_source(monkeypatch):
-    monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
-    source = "print('Hello from CodeRunner')\nprint(6 * 7)"
-    command = execution_service._docker_command("coderun-test", source.encode())
+def _runner_test_env(temp_path, sources):
     env = os.environ.copy()
-    env["CODERUN_SOURCE_B64"] = base64.b64encode(source.encode()).decode("ascii")
+    for variable in ("TMPDIR", "TEMP", "TMP"):
+        env[variable] = str(temp_path)
+    bundle = json.dumps(sources, ensure_ascii=False, separators=(",", ":"))
+    env["CODERUN_SOURCE_B64"] = base64.b64encode(bundle.encode()).decode("ascii")
+    return env
+
+
+def test_embedded_script_wrapper_executes_source(monkeypatch, tmp_path):
+    monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
+    sources = {"main.py": "print('Hello from CodeRunner')\nprint(6 * 7)"}
+    command = execution_service._docker_command("coderun-test", sources)
+    env = _runner_test_env(tmp_path, sources)
+
+    try:
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", "-c", command[-1]],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=10,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        pytest.fail(f"Generated runner hung. stdout={error.stdout!r} stderr={error.stderr!r}")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "Hello from CodeRunner\n42\n"
+    assert "CODERUN_SOURCE_B64" not in result.stderr
+
+
+def test_embedded_script_wrapper_imports_root_module(monkeypatch, tmp_path):
+    monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
+    sources = {
+        "main.py": "from helpers import answer\nprint(answer())",
+        "helpers.py": "def answer():\n    return 42\n",
+    }
+    command = execution_service._docker_command("coderun-test", sources)
+    env = _runner_test_env(tmp_path, sources)
 
     result = subprocess.run(
         [sys.executable, "-I", "-B", "-c", command[-1]],
@@ -69,17 +109,16 @@ def test_embedded_script_wrapper_executes_source(monkeypatch):
         check=False,
     )
 
-    assert result.returncode == 0
-    assert result.stdout == "Hello from CodeRunner\n42\n"
-    assert "CODERUN_SOURCE_B64" not in result.stderr
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "42\n"
 
 
-def test_embedded_script_wrapper_enforces_script_timeout(monkeypatch):
+def test_embedded_script_wrapper_enforces_script_timeout(monkeypatch, tmp_path):
     monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
     monkeypatch.setattr(execution_service, "RUN_TIMEOUT_SECONDS", 0.1)
-    command = execution_service._docker_command("coderun-test", b"while True: pass")
-    env = os.environ.copy()
-    env["CODERUN_SOURCE_B64"] = base64.b64encode(b"while True: pass").decode("ascii")
+    sources = {"main.py": "while True: pass"}
+    command = execution_service._docker_command("coderun-test", sources)
+    env = _runner_test_env(tmp_path, sources)
 
     result = subprocess.run(
         [sys.executable, "-I", "-B", "-c", command[-1]],
@@ -99,7 +138,12 @@ def test_script_is_passed_to_container_without_stdin(monkeypatch):
     monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
 
     def fake_popen(command, **kwargs):
-        expected = base64.b64encode(b"print('hello')").decode("ascii")
+        bundle = json.dumps(
+            {"main.py": "print('hello')"},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        expected = base64.b64encode(bundle).decode("ascii")
         assert f"--env=CODERUN_SOURCE_B64={expected}" in command
         assert kwargs["stdin"] == execution_service.subprocess.DEVNULL
         return process
@@ -210,6 +254,52 @@ def test_oversized_script_is_rejected_before_launch(monkeypatch):
 
     assert result.status == "failed"
     assert "12 KiB" in result.stderr
+
+
+def test_oversized_source_bundle_is_rejected_before_launch(monkeypatch):
+    monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
+    monkeypatch.setattr(
+        execution_service.subprocess,
+        "Popen",
+        lambda *a, **k: pytest.fail("Docker must not start for oversized input"),
+    )
+
+    result = run_python_script(
+        {"main.py": "print('ok')", "helpers.py": "x" * execution_service.MAX_TOTAL_SOURCE_BYTES}
+    )
+
+    assert result.status == "failed"
+    assert "16 KiB" in result.stderr
+
+
+def test_invalid_module_filename_is_rejected_before_launch(monkeypatch):
+    monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
+    monkeypatch.setattr(
+        execution_service.subprocess,
+        "Popen",
+        lambda *a, **k: pytest.fail("Docker must not start for unsafe filenames"),
+    )
+
+    result = run_python_script(
+        {"main.py": "print('ok')", "../helpers.py": "answer = 42"}
+    )
+
+    assert result.status == "failed"
+    assert "root-level module names" in result.stderr
+
+
+def test_encoded_bundle_that_exceeds_command_limit_is_rejected(monkeypatch):
+    monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
+    monkeypatch.setattr(
+        execution_service.subprocess,
+        "Popen",
+        lambda *a, **k: pytest.fail("Docker must not start for an oversized bundle"),
+    )
+
+    result = run_python_script({"main.py": "\n" * 12_000})
+
+    assert result.status == "failed"
+    assert "bundle is too large" in result.stderr
 
 
 def test_missing_docker_is_reported(monkeypatch):

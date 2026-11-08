@@ -25,6 +25,8 @@ FAKE_TREE = {
         _entry("README.md", "README.md", "file"),
         _entry("src", "src", "dir"),
         _entry("app.py", "app.py", "file"),
+        _entry("helpers.py", "helpers.py", "file"),
+        _entry("main.py", "main.py", "file"),
         _entry("assets", "assets", "dir"),
     ],
     "src": [
@@ -38,6 +40,8 @@ FAKE_TREE = {
 FAKE_FILES = {
     "README.md": "# Hello",
     "main.py": "print('hello from CodeRunner')",
+    "helpers.py": "def answer():\n    return 42\n",
+    "app.py": "def run():\n    return None\n",
     "src/index.js": "console.log('hi')",
 }
 
@@ -118,7 +122,14 @@ def test_directories_listed_before_files(client):
         item["name"]
         for item in client.get("/github/octo/demo/directory/").json()["contents"]
     ]
-    assert names == ["assets", "src", "app.py", "README.md"]
+    assert names == [
+        "assets",
+        "src",
+        "app.py",
+        "helpers.py",
+        "main.py",
+        "README.md",
+    ]
 
 
 def test_nested_directory(client):
@@ -147,7 +158,7 @@ def test_file_path_on_directory_route_returns_400(client):
 def test_legacy_contents_route_lists_root(client):
     data = client.get("/github/octo/demo/contents").json()
     assert data["repository"] == "octo/demo"
-    assert len(data["contents"]) == 4
+    assert len(data["contents"]) == 6
 
 
 def test_nested_file(client):
@@ -158,10 +169,16 @@ def test_nested_file(client):
 def test_run_endpoint_returns_execution_result(client, monkeypatch):
     from services.execution_service import ExecutionResult
 
+    received_sources = {}
+
+    def run(sources):
+        received_sources.update(sources)
+        return ExecutionResult("completed", 0, "hello\n", "", 12)
+
     monkeypatch.setattr(
         main,
         "run_python_script",
-        lambda script: ExecutionResult("completed", 0, "hello\n", "", 12),
+        run,
     )
 
     response = client.post("/github/octo/demo/run")
@@ -174,6 +191,10 @@ def test_run_endpoint_returns_execution_result(client, monkeypatch):
         "stdout": "hello\n",
         "stderr": "",
         "duration_ms": 12,
+    }
+    assert received_sources == {
+        "main.py": "print('hello from CodeRunner')",
+        "helpers.py": "def answer():\n    return 42\n",
     }
 
 

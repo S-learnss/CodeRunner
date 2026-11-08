@@ -54,6 +54,20 @@ def test_real_container_runs_script_and_is_removed(container_name):
     assert_container_removed(container_name)
 
 
+def test_real_container_imports_root_module_and_is_removed(container_name):
+    result = run_python_script(
+        {
+            "main.py": "from helpers import answer\nprint(answer())",
+            "helpers.py": "def answer():\n    return 42\n",
+        }
+    )
+
+    assert result.status == "completed"
+    assert result.exit_code == 0
+    assert result.stdout == "42\n"
+    assert_container_removed(container_name)
+
+
 def test_real_container_reports_script_error_and_is_removed(container_name):
     result = run_python_script("raise ValueError('intentional test')")
 

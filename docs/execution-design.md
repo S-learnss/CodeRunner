@@ -2,13 +2,14 @@
 
 ## Goal
 
-Let a student try a small GitHub project without installing its toolchain. The first execution slice accepts a public repository with a root-level `main.py`, runs that file once in a restricted container, and shows its output and exit status. It does not try to be a general-purpose IDE or reproduce every repository's development environment.
+Let a student try a small GitHub project without installing its toolchain. The Python runner accepts a public repository with a root-level `main.py` and bounded sibling modules, runs that entry point in a restricted container, and shows its output and exit status. It does not try to be a general-purpose IDE or reproduce every repository's development environment.
 
 ## First supported project
 
 - Public GitHub repository with a root-level `main.py`.
-- Python standard library only for the initial slice. Do not install packages or run repository-provided setup commands.
-- The runner receives only `main.py`; imports from other files in the repository are unsupported.
+- Python standard library only. Do not install packages or run repository-provided setup commands.
+- The runner receives `main.py` and up to 11 regular `.py` files from the same repository root, within the 16 KiB combined source limit.
+- Local imports between those root-level modules are supported. Nested modules and package directories are unsupported.
 - Run a fixed Python wrapper command that executes the fetched source as `main.py`; never use a command, Docker option, or image name supplied by the repository.
 - No network access, listening ports, interactive input, background services, GUI, database, GPU, or hardware access.
 - Unsupported repositories get a plain explanation and guidance; do not guess how to launch them.
@@ -18,9 +19,9 @@ This intentionally narrow package policy can be revisited after the execution bo
 ## Request flow
 
 1. The frontend asks the existing backend to run a selected repository.
-2. The backend fetches the root-level `main.py` from GitHub and checks its size and text encoding.
-3. The backend starts a fixed Python runner image and passes the UTF-8 script as a bounded, base64 encoded container environment value. No repository files or host directories are mounted.
-4. The container runs the script with a short-lived writable temporary filesystem.
+2. The backend lists the repository root, requires `main.py`, selects bounded root-level `.py` files, and checks their types, sizes, and UTF-8 encoding.
+3. The backend starts a fixed Python runner image and passes the bounded source bundle as a base64 encoded container environment value. No repository files or host directories are mounted.
+4. The container materializes the source bundle in its short-lived writable temporary filesystem and runs `main.py` with that directory on the import path.
 5. The backend captures stdout, stderr, exit code, and duration, enforces limits, and removes the container and its temporary storage on every exit path.
 6. The API returns a structured result. The frontend displays output and a student-readable status message.
 
@@ -53,6 +54,27 @@ Suggested starting limits for a local prototype: 1 CPU, 256 MiB memory, 32 proce
 ## Not in the first slice
 
 Dependency installation, Node.js, compilation, web servers and exposed ports, GUI applications, databases, Docker Compose, GPU or hardware use, private repositories, and long-running or interactive processes. Static preview is a separate browser feature: it only loads a root-level `index.html`, reads relative assets from jsDelivr's public GitHub mirror, and renders in an iframe with sandboxing and a restrictive content policy; it does not use the Python runner or expose a server port.
+
+## Python source bundle limits
+
+Keep the project boundary narrow:
+
+- Include only regular, root-level `.py` files; do not recurse into directories or follow symlinks.
+- Support local imports such as `import helpers` and `from helpers import value`. Package directories, relative package imports, and third-party packages remain unsupported.
+- Keep running `main.py` as the only entry point. Do not run tests, setup scripts, or infer another launch command.
+- Suggested initial bounds: at most 12 Python files, 12 KiB for `main.py`, and 16 KiB combined source. Reject a project clearly when it exceeds a limit.
+- Validate every filename as a simple Python module filename before placing it in the container. Never join repository-provided paths to host paths.
+- Fetch only the bounded root-level Python files through the GitHub API. Check declared sizes before fetching and actual UTF-8 source sizes after decoding.
+- Pass a bounded source bundle to the runner. Materialize it only in the container's existing temporary filesystem, add that directory to the child interpreter's import path, and remove it when execution ends. Keep the container network-disabled, read-only outside `/tmp`, and subject to the established time, output, memory, CPU, and process limits.
+
+The runner also caps the base64 encoded bundle at 24 KiB. This keeps the Docker command within Windows process command-line limits even when JSON escaping expands the source. Revisit the transport before increasing either limit.
+
+Acceptance checks for this slice:
+
+- `main.py` successfully imports and uses a root-level helper module.
+- A missing helper produces a normal Python traceback.
+- Nested modules, packages, third-party imports, malformed filenames, too many files, oversized files, and invalid UTF-8 sources are rejected or fail with a clear explanation.
+- The main entry point still obeys the 10-second runtime and 64 KiB output limits, and the temporary source bundle is removed after success, failure, and timeout.
 
 ## Decisions before implementation
 

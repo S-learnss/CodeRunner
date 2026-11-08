@@ -1,6 +1,8 @@
 """Run a small Python entry point in a constrained Docker container."""
 
 import base64
+import json
+import keyword
 import shutil
 import subprocess
 import threading
@@ -16,6 +18,9 @@ RUN_TIMEOUT_SECONDS = 10
 # script's own execution limit enforced inside the container.
 DOCKER_STARTUP_GRACE_SECONDS = 30
 MAX_SCRIPT_BYTES = 12 * 1024
+MAX_SOURCE_FILES = 12
+MAX_TOTAL_SOURCE_BYTES = 16 * 1024
+MAX_ENCODED_BUNDLE_CHARS = 24 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024
 MAX_CONCURRENT_RUNS = 2
 _RUN_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_RUNS)
@@ -38,18 +43,35 @@ class ExecutionResult:
     duration_ms: int
 
 
-def _docker_command(container_name: str, script_bytes: bytes) -> list[str]:
+def _encode_source_bundle(sources: dict[str, str]) -> str:
+    source_bundle = json.dumps(
+        sources, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    return base64.b64encode(source_bundle).decode("ascii")
+
+
+def _docker_command(container_name: str, sources: dict[str, str]) -> list[str]:
     docker = shutil.which("docker")
     if not docker:
         raise RunnerUnavailable("Docker is not installed or is not on PATH.")
 
-    encoded_script = base64.b64encode(script_bytes).decode("ascii")
+    encoded_script = _encode_source_bundle(sources)
     script_runner = (
-        "import base64,os,sys;"
-        "source=base64.b64decode(os.environ.pop('CODERUN_SOURCE_B64')).decode('utf-8');"
-        "sys.argv=['main.py'];"
-        "exec(compile(source,'main.py','exec'),"
-        "{'__name__':'__main__','__file__':'main.py'})"
+        "import base64,json,os,shutil,sys,tempfile\n"
+        "files=json.loads(base64.b64decode(os.environ.pop('CODERUN_SOURCE_B64')))\n"
+        "workdir=tempfile.mkdtemp(prefix='coderun-')\n"
+        "try:\n"
+        " for name,source in files.items():\n"
+        "  with open(os.path.join(workdir,name),'w',encoding='utf-8') as target:\n"
+        "   target.write(source)\n"
+        " os.chdir(workdir)\n"
+        " sys.path.insert(0,workdir)\n"
+        " sys.argv=['main.py']\n"
+        " source=files['main.py']\n"
+        " exec(compile(source,'main.py','exec'),"
+        "{'__name__':'__main__','__file__':os.path.join(workdir,'main.py')})\n"
+        "finally:\n"
+        " shutil.rmtree(workdir,ignore_errors=True)"
     )
     container_runner = (
         "import os,subprocess,sys;"
@@ -91,21 +113,60 @@ def _docker_command(container_name: str, script_bytes: bytes) -> list[str]:
     ]
 
 
-def run_python_script(script: str) -> ExecutionResult:
-    """Run root main.py without mounting repository or host files."""
-    script_bytes = script.encode("utf-8")
-    if len(script_bytes) > MAX_SCRIPT_BYTES:
+def run_python_script(script: str | dict[str, str]) -> ExecutionResult:
+    """Run root main.py and bounded sibling modules in a restricted container."""
+    sources = {"main.py": script} if isinstance(script, str) else script
+    if not isinstance(sources, dict) or "main.py" not in sources:
+        return ExecutionResult(
+            "failed", None, "", "A root-level main.py file is required.", 0
+        )
+
+    if len(sources) > MAX_SOURCE_FILES:
+        return ExecutionResult(
+            "failed", None, "", "The project has more than 12 Python files.", 0
+        )
+
+    total_source_bytes = 0
+    for name, source in sources.items():
+        if (
+            not isinstance(name, str)
+            or not name.endswith(".py")
+            or not name[:-3].isidentifier()
+            or keyword.iskeyword(name[:-3])
+            or "/" in name
+            or "\\" in name
+            or not isinstance(source, str)
+        ):
+            return ExecutionResult(
+                "failed",
+                None,
+                "",
+                "Python files must use simple root-level module names.",
+                0,
+            )
+        total_source_bytes += len(source.encode("utf-8"))
+
+    main_size = len(sources["main.py"].encode("utf-8"))
+    if main_size > MAX_SCRIPT_BYTES:
         return ExecutionResult(
             "failed", None, "", "main.py exceeds the 12 KiB limit.", 0
         )
+    if total_source_bytes > MAX_TOTAL_SOURCE_BYTES:
+        return ExecutionResult(
+            "failed", None, "", "Python source files exceed the 16 KiB total limit.", 0
+        )
+    if len(_encode_source_bundle(sources)) > MAX_ENCODED_BUNDLE_CHARS:
+        return ExecutionResult(
+            "failed", None, "", "Python source bundle is too large for the runner.", 0
+        )
 
     container_name = f"coderun-{uuid.uuid4().hex}"
-    command = _docker_command(container_name, script_bytes)
+    command = _docker_command(container_name, sources)
     if not _RUN_SLOTS.acquire(blocking=False):
         raise RunnerBusy("The Python runner is busy.")
 
     try:
-        return _run_container(command, script_bytes, container_name)
+        return _run_container(command, container_name)
     finally:
         _RUN_SLOTS.release()
 
@@ -125,7 +186,6 @@ def _stop_container(docker: str, container_name: str):
 
 def _run_container(
     command: list[str],
-    script_bytes: bytes,
     container_name: str,
 ) -> ExecutionResult:
     started = time.monotonic()

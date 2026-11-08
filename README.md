@@ -18,7 +18,7 @@ The long-term goal is to let developers explore projects and eventually run supp
 - Readable error messages for missing repositories, rate limits, and GitHub outages.
 - Optional GitHub token support for higher API rate limits.
 - Automated backend tests that run without network access.
-- Run a repository's root-level `main.py` with Python's standard library in a restricted Docker container.
+- Run a repository's root-level `main.py` and sibling Python modules with the standard library in a restricted Docker container.
 - Preview a repository's root-level `index.html` in a sandboxed iframe, including relative static assets.
 
 The static preview supports plain HTML, CSS, and JavaScript files already present in the repository. Relative assets are served from jsDelivr's public GitHub mirror, so the repository must be public and available through that CDN. It does not run a build tool or start a web server.
@@ -26,7 +26,7 @@ The static preview supports plain HTML, CSS, and JavaScript files already presen
 ### Planned
 
 - Render images and Markdown in the viewer.
-- Expand execution support beyond single-file Python scripts.
+- Add support for Python packages and Node.js scripts.
 - Add automated repository analysis and project summaries.
 - Private repository support in the user interface.
 - Improve security and execution controls.
@@ -200,7 +200,7 @@ If the frontend runs on a different origin than `http://localhost:5173`, add tha
 | GET | `/github/{owner}/{repo}/contents` | List root-level repository contents |
 | GET | `/github/{owner}/{repo}/directory/{path}` | List any directory; an empty path lists the root |
 | GET | `/github/{owner}/{repo}/file/{file_path}` | Retrieve an individual file |
-| POST | `/github/{owner}/{repo}/run` | Run the repository's root-level `main.py` |
+| POST | `/github/{owner}/{repo}/run` | Run root-level `main.py` and sibling Python modules |
 
 Errors are returned as JSON in the form `{"detail": "message"}` with a matching HTTP status code:
 
@@ -208,9 +208,9 @@ Errors are returned as JSON in the form `{"detail": "message"}` with a matching 
 |---|---|
 | 400 | The path is a file where a directory was expected, or the reverse |
 | 404 | Repository, directory or file not found |
-| 413 | File too large for GitHub to return inline (over 1 MB) |
-| 415 | Binary file, which cannot be shown as text |
-| 422 | Repository does not contain a supported root-level `main.py` |
+| 413 | File too large for GitHub inline display, or Python source exceeds runner limits |
+| 415 | Binary or non-UTF-8 file, or an unsupported Python source file |
+| 422 | Repository does not contain a supported root-level `main.py`, or a Python filename is unsupported |
 | 429 | GitHub rate limit reached or the runner is at capacity |
 | 503 | Python runner is unavailable |
 | 502 | GitHub unreachable, returned an error, or rejected the token |
@@ -237,7 +237,7 @@ Public repositories work out of the box. Private repositories are only reachable
 
 ### Running a Python script
 
-The first execution slice supports a public repository with a root-level `main.py` up to 12 KiB. It runs the script with the Python standard library only; dependencies are not installed. The backend host must have Docker installed and running, and the image must be pulled once before use:
+The runner supports a public repository with a root-level `main.py` up to 12 KiB and up to 11 sibling `.py` modules, with a 16 KiB combined source limit. Python packages in subfolders and third-party dependencies are not included. The backend host must have Docker installed and running, and the image must be pulled once before use:
 
 ```bash
 docker pull python:3.12-slim

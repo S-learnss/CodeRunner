@@ -115,22 +115,34 @@ async def get_repository_file(
     if data is None:
         return None
 
-    if isinstance(data, dict) and data.get("type") == "file":
-        data["is_binary"] = False
+    return decode_repository_file(data)
 
-        if data.get("encoding") == "base64":
-            raw = base64.b64decode(data.get("content", ""))
 
-            # A null byte near the start is a reliable sign of a binary
-            # file (image, archive, compiled output, ...).
-            if b"\x00" in raw[:BINARY_SNIFF_BYTES]:
-                data["is_binary"] = True
-                data["decoded_content"] = None
-            else:
-                data["decoded_content"] = raw.decode(
-                    "utf-8", errors="replace"
-                )
-        else:
-            data["decoded_content"] = None
+def decode_repository_file(data):
+    """Decode a GitHub Contents API file response for display or execution."""
+    if not isinstance(data, dict) or data.get("type") != "file":
+        return data
 
+    data["is_binary"] = False
+    data["valid_utf8"] = True
+
+    if data.get("encoding") != "base64":
+        data["decoded_content"] = None
+        return data
+
+    raw = base64.b64decode(data.get("content", ""))
+
+    # A null byte near the start is a reliable sign of a binary file.
+    if b"\x00" in raw[:BINARY_SNIFF_BYTES]:
+        data["is_binary"] = True
+        data["valid_utf8"] = False
+        data["decoded_content"] = None
+        return data
+
+    try:
+        raw.decode("utf-8")
+    except UnicodeDecodeError:
+        data["valid_utf8"] = False
+
+    data["decoded_content"] = raw.decode("utf-8", errors="replace")
     return data

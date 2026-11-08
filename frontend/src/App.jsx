@@ -139,8 +139,9 @@ function App() {
                 <p className="eyebrow">RUN A SCRIPT</p>
                 <h3 id="run-title">Try the Python entry point</h3>
                 <p className="tool-card__description">
-                  Runs the repository&apos;s root-level <code>main.py</code> using
-                  Python&apos;s standard library. Packages are not installed.
+                  Runs root-level <code>main.py</code> and its sibling Python
+                  files using the standard library. Packages and subfolders
+                  aren&apos;t included.
                 </p>
                 <button className="button button--primary" onClick={runRepository} disabled={running}>
                   {running ? "Running script…" : "Run main.py"}

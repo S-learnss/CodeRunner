@@ -1,4 +1,5 @@
 import asyncio
+import keyword
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +10,14 @@ from services.github_service import (
     get_repository_contents,
     get_repository_file,
 )
-from services.execution_service import RunnerBusy, RunnerUnavailable, run_python_script
+from services.execution_service import (
+    MAX_SCRIPT_BYTES,
+    MAX_SOURCE_FILES,
+    MAX_TOTAL_SOURCE_BYTES,
+    RunnerBusy,
+    RunnerUnavailable,
+    run_python_script,
+)
 
 
 app = FastAPI(title="CodeRunner API")
@@ -183,34 +191,120 @@ async def repository_file(
 
 @app.post("/github/{owner}/{repo}/run")
 async def run_repository(owner: str, repo: str):
-    """Run a repository's root main.py using the restricted Python runner."""
+    """Run root main.py and its bounded root-level Python modules."""
     try:
-        data = await get_repository_file(owner, repo, "main.py")
+        entries = await get_repository_contents(owner, repo)
     except GitHubAPIError as error:
         _raise_http_error(error)
 
-    if data is None:
+    if entries is None:
         raise HTTPException(
             status_code=422,
-            detail="This first version only runs repositories with a root-level main.py.",
+            detail="Python runs require a root-level main.py file.",
         )
 
-    if not isinstance(data, dict) or data.get("type") != "file":
+    if not isinstance(entries, list):
         raise HTTPException(
             status_code=422,
-            detail="This first version only runs repositories with a root-level main.py.",
+            detail="Python runs require a root-level main.py file.",
         )
 
-    if data.get("is_binary") or data.get("decoded_content") is None:
+    python_entries = [
+        entry
+        for entry in entries
+        if isinstance(entry, dict)
+        and entry.get("type") == "file"
+        and isinstance(entry.get("name"), str)
+        and entry["name"].endswith(".py")
+        and entry.get("path") == entry.get("name")
+    ]
+    if not any(entry.get("name") == "main.py" for entry in python_entries):
         raise HTTPException(
-            status_code=415,
-            detail="The root-level main.py file must be UTF-8 text.",
+            status_code=422,
+            detail="Python runs require a root-level main.py file.",
+        )
+    if len(python_entries) > MAX_SOURCE_FILES:
+        raise HTTPException(
+            status_code=413,
+            detail="This project has more than 12 root-level Python files.",
+        )
+
+    for entry in python_entries:
+        name = entry["name"]
+        if not name[:-3].isidentifier() or keyword.iskeyword(name[:-3]):
+            raise HTTPException(
+                status_code=422,
+                detail="Python files must use simple root-level module names.",
+            )
+
+    main_entry = next(entry for entry in python_entries if entry["name"] == "main.py")
+    main_size = main_entry.get("size")
+    if isinstance(main_size, int) and main_size > MAX_SCRIPT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="main.py exceeds the 12 KiB limit.",
+        )
+
+    declared_sizes = [
+        entry.get("size")
+        for entry in python_entries
+        if isinstance(entry.get("size"), int) and entry.get("size") >= 0
+    ]
+    if sum(declared_sizes) > MAX_TOTAL_SOURCE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="Python source files exceed the 16 KiB total limit.",
+        )
+
+    try:
+        file_results = await asyncio.gather(
+            *(
+                get_repository_file(owner, repo, entry["name"])
+                for entry in python_entries
+            )
+        )
+    except GitHubAPIError as error:
+        _raise_http_error(error)
+
+    sources = {}
+    for entry, data in zip(python_entries, file_results):
+        if (
+            not isinstance(data, dict)
+            or data.get("type") != "file"
+            or data.get("target") is not None
+            or data.get("submodule_git_url") is not None
+        ):
+            raise HTTPException(
+                status_code=415,
+                detail="Only regular root-level Python files can be run.",
+            )
+        if (
+            data.get("is_binary")
+            or not data.get("valid_utf8", True)
+            or data.get("decoded_content") is None
+        ):
+            raise HTTPException(
+                status_code=415,
+                detail=f"{entry['name']} must be UTF-8 text.",
+            )
+        sources[entry["name"]] = data["decoded_content"]
+
+    actual_total_size = sum(len(source.encode("utf-8")) for source in sources.values())
+    if len(sources["main.py"].encode("utf-8")) > MAX_SCRIPT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="main.py exceeds the 12 KiB limit.",
+        )
+    if actual_total_size > MAX_TOTAL_SOURCE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="Python source files exceed the 16 KiB total limit.",
         )
 
     try:
         result = await asyncio.to_thread(
             run_python_script,
-            data["decoded_content"],
+            sources,
         )
     except RunnerUnavailable as error:
         raise HTTPException(
