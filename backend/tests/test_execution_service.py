@@ -74,6 +74,26 @@ def test_embedded_script_wrapper_executes_source(monkeypatch):
     assert "CODERUN_SOURCE_B64" not in result.stderr
 
 
+def test_embedded_script_wrapper_enforces_script_timeout(monkeypatch):
+    monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
+    monkeypatch.setattr(execution_service, "RUN_TIMEOUT_SECONDS", 0.1)
+    command = execution_service._docker_command("coderun-test", b"while True: pass")
+    env = os.environ.copy()
+    env["CODERUN_SOURCE_B64"] = base64.b64encode(b"while True: pass").decode("ascii")
+
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", "-c", command[-1]],
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=5,
+        check=False,
+    )
+
+    assert result.returncode == 124
+    assert "__CODERUN_SCRIPT_TIMEOUT__" in result.stderr
+
+
 def test_script_is_passed_to_container_without_stdin(monkeypatch):
     process = FakeProcess()
     monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
@@ -121,6 +141,24 @@ def test_docker_daemon_connection_error_is_reported_as_runner_unavailable(monkey
         run_python_script("print('hello')")
 
 
+def test_script_timeout_marker_is_reported_as_timeout(monkeypatch):
+    process = FakeProcess(
+        stdout=b"hello\n",
+        stderr=b"\n__CODERUN_SCRIPT_TIMEOUT__\n",
+        exit_code=124,
+    )
+    monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
+    monkeypatch.setattr(execution_service.subprocess, "Popen", lambda *a, **k: process)
+    monkeypatch.setattr(execution_service.subprocess, "run", lambda *a, **k: None)
+
+    result = run_python_script("while True: pass")
+
+    assert result.status == "timed_out"
+    assert result.exit_code is None
+    assert "10 second script time limit" in result.stderr
+    assert "__CODERUN_SCRIPT_TIMEOUT__" not in result.stderr
+
+
 def test_output_limit_stops_run_and_bounds_combined_result(monkeypatch):
     process = FakeProcess(stdout=b"x" * (execution_service.MAX_OUTPUT_BYTES + 1))
     process.exit_code = None
@@ -140,18 +178,24 @@ def test_output_limit_stops_run_and_bounds_combined_result(monkeypatch):
 def test_timeout_stops_run(monkeypatch):
     process = FakeProcess()
     process.exit_code = None
-    ticks = iter([0, execution_service.RUN_TIMEOUT_SECONDS + 1])
+    total_timeout = (
+        execution_service.RUN_TIMEOUT_SECONDS
+        + execution_service.DOCKER_STARTUP_GRACE_SECONDS
+    )
+    ticks = iter([0, total_timeout + 1])
     monkeypatch.setattr(execution_service.shutil, "which", lambda _: "docker")
     monkeypatch.setattr(execution_service.subprocess, "Popen", lambda *a, **k: process)
     monkeypatch.setattr(execution_service.subprocess, "run", lambda *a, **k: None)
-    monkeypatch.setattr(execution_service.time, "monotonic", lambda: next(ticks, 20))
+    monkeypatch.setattr(
+        execution_service.time, "monotonic", lambda: next(ticks, total_timeout + 2)
+    )
 
     result = run_python_script("while True: pass")
 
     assert process.killed
     assert result.status == "timed_out"
     assert result.exit_code is None
-    assert "time limit" in result.stderr
+    assert "40 second safety limit" in result.stderr
 
 
 def test_oversized_script_is_rejected_before_launch(monkeypatch):

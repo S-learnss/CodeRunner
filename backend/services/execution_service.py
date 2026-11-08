@@ -11,6 +11,10 @@ from dataclasses import dataclass
 
 PYTHON_IMAGE = "python:3.12-slim"
 RUN_TIMEOUT_SECONDS = 10
+# Docker Desktop may need several seconds to create a container, especially on
+# the first run. This outer limit guards that startup separately from the
+# script's own execution limit enforced inside the container.
+DOCKER_STARTUP_GRACE_SECONDS = 30
 MAX_SCRIPT_BYTES = 12 * 1024
 MAX_OUTPUT_BYTES = 64 * 1024
 MAX_CONCURRENT_RUNS = 2
@@ -47,6 +51,18 @@ def _docker_command(container_name: str, script_bytes: bytes) -> list[str]:
         "exec(compile(source,'main.py','exec'),"
         "{'__name__':'__main__','__file__':'main.py'})"
     )
+    container_runner = (
+        "import os,subprocess,sys;"
+        f"runner={script_runner!r};"
+        "process=subprocess.Popen([sys.executable,'-I','-B','-c',runner]);"
+        f"timeout={RUN_TIMEOUT_SECONDS}\n"
+        "try: code=process.wait(timeout=timeout)\n"
+        "except subprocess.TimeoutExpired:\n"
+        " process.kill();process.wait();"
+        " sys.stderr.write('\\n__CODERUN_SCRIPT_TIMEOUT__\\n');"
+        " sys.exit(124)\n"
+        "sys.exit(code)"
+    )
 
     return [
         docker,
@@ -71,7 +87,7 @@ def _docker_command(container_name: str, script_bytes: bytes) -> list[str]:
         "-I",
         "-B",
         "-c",
-        script_runner,
+        container_runner,
     ]
 
 
@@ -164,7 +180,7 @@ def _run_container(
                 process.kill()
             break
 
-        if time.monotonic() - started >= RUN_TIMEOUT_SECONDS:
+        if time.monotonic() - started >= RUN_TIMEOUT_SECONDS + DOCKER_STARTUP_GRACE_SECONDS:
             timed_out = True
             _stop_container(command[0], container_name)
             if process.poll() is None:
@@ -197,9 +213,21 @@ def _run_container(
             "Could not start the Python container. Check that Docker is running."
         )
 
+    script_timed_out = b"__coderun_script_timeout__" in docker_diagnostic
+    if script_timed_out:
+        output["stderr"] = output["stderr"].replace(
+            b"\n__CODERUN_SCRIPT_TIMEOUT__\n", b""
+        )
+        timed_out = True
+
     if timed_out:
         status = "timed_out"
-        diagnostic = b"\nRun stopped after the 10 second time limit."
+        diagnostic = b"\nRun stopped after the 10 second script time limit."
+        if not script_timed_out:
+            diagnostic = (
+                b"\nRun stopped because Docker startup and execution exceeded "
+                b"the 40 second safety limit."
+            )
     elif output_limited:
         status = "failed"
         diagnostic = b"\nRun stopped after the 64 KiB output limit."

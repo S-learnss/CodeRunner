@@ -33,13 +33,13 @@ Each run uses a fresh container and a fixed command. Start with these conservati
 - Non-root container user; drop Linux capabilities; enable `no-new-privileges`.
 - Disable networking; do not publish ports.
 - Read-only container root filesystem; no host files mounted; bounded temporary storage.
-- CPU, memory, process-count, and wall-clock limits.
+- CPU, memory, process-count, script-runtime, and runner-startup limits.
 - Cap combined stdout and stderr; terminate the run when the cap is exceeded.
 - Limit the local backend to two concurrent runs; report a clear retry message when both slots are in use.
 - No credentials, host environment variables, home directory, or unrelated host paths passed to the container.
 - Always stop and remove the container and its temporary storage, including on timeout or backend errors.
 
-Suggested starting limits for a local prototype: 1 CPU, 256 MiB memory, 32 processes, 10 seconds, and 64 KiB combined output. Validate these against representative coursework before treating them as final product defaults. A Docker daemon is a privileged host boundary; this design reduces exposure but is not a claim that hostile code is harmless.
+Suggested starting limits for a local prototype: 1 CPU, 256 MiB memory, 32 processes, 10 seconds of script runtime, a separate 30-second Docker startup allowance, and 64 KiB combined output. The script timer starts inside the container so Docker Desktop's cold start does not consume the student's runtime. A 40-second outer deadline still stops a stuck runner. Validate these against representative coursework before treating them as final product defaults. A Docker daemon is a privileged host boundary; this design reduces exposure but is not a claim that hostile code is harmless.
 
 ## Input and API behavior
 
