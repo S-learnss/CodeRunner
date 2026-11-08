@@ -193,6 +193,7 @@ def test_run_endpoint_returns_execution_result(client, monkeypatch):
         "duration_ms": 12,
     }
     assert received_sources == {
+        "app.py": "def run():\n    return None\n",
         "main.py": "print('hello from CodeRunner')",
         "helpers.py": "def answer():\n    return 42\n",
     }
