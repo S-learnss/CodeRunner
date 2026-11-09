@@ -60,7 +60,11 @@ CodeRunner/
 │   │   ├── execution_service.py
 │   │   └── node_execution_service.py
 │   └── tests/
-│       └── test_api.py
+│       ├── test_api.py
+│       ├── test_execution_service.py
+│       ├── test_execution_docker.py
+│       ├── test_github_content.py
+│       └── test_node_execution_service.py
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
@@ -76,7 +80,9 @@ CodeRunner/
 │   ├── package.json
 │   └── vite.config.js
 ├── .env.example
+├── .github/workflows/ci.yml
 ├── .gitignore
+├── docs/execution-design.md
 └── README.md
 ```
 
@@ -248,7 +254,7 @@ The runner supports a public repository with a root-level `main.py` up to 12 KiB
 docker pull python:3.12-slim
 ```
 
-CodeRunner uses that fixed Python image without pulling during a run, disables container networking, mounts no host files, enforces CPU, memory, process, time, and output limits, and allows at most two concurrent runs. Review [the execution design](docs/execution-design.md) for the scope and security boundaries. Docker is not a guarantee that arbitrary code is harmless.
+The Python runner uses that fixed image without pulling during a run. It accepts Python standard-library imports but does not install third-party packages.
 
 ### Running a JavaScript script
 
@@ -258,7 +264,9 @@ The Node.js runner requires a public repository with a root-level `main.js` and 
 docker pull node:22-slim
 ```
 
-The JavaScript runner uses the same network, CPU, memory, process, runtime, and output limits as the Python runner. Review [the execution design](docs/execution-design.md) for the scope and security boundaries.
+The JavaScript runner uses `node:22-slim` without pulling during a run. It runs CommonJS code and sibling `.js` modules; third-party packages and `package.json` scripts are not included.
+
+Both runners disable container networking, mount no host files, and use a read-only container filesystem except for temporary source storage. Each run is limited to 1 CPU, 256 MiB of container memory, 32 processes, 10 seconds of program runtime, and 64 KiB of combined output. Docker startup has a separate 30-second allowance, with a 40-second overall safety limit. CodeRunner allows at most two runs at once. These restrictions reduce risk but do not guarantee that arbitrary code is harmless. See [the execution design](docs/execution-design.md) for details.
 
 ## Running the Tests
 
@@ -289,11 +297,11 @@ npm run build
 
 1. ~~Complete nested directory navigation.~~
 2. ~~Build a dedicated source-code viewer.~~
-3. Harden and expand the Python execution slice, including Docker integration tests.
-4. Add sandboxed preview for static websites.
-5. Add automated repository analysis.
-6. Expand execution support to more project types.
-7. Expand documentation.
+3. ~~Add restricted Python and Node.js runners with Docker integration checks.~~
+4. ~~Add sandboxed preview for static websites.~~
+5. Add Markdown rendering and image preview in the file viewer.
+6. Add automated repository analysis.
+7. Evaluate dependency installation and additional runtimes after a separate security design.
 
 ## Learning Objectives
 
