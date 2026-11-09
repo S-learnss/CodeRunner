@@ -2,7 +2,7 @@
 
 CodeRunner is a web-based GitHub repository explorer designed to make it easier to inspect and understand software projects. It connects a React frontend to a FastAPI backend that retrieves repository information and source files through the GitHub REST API.
 
-The long-term goal is to let developers explore projects and eventually run supported applications in isolated Docker containers without manually configuring their development environments.
+CodeRunner lets students explore public GitHub repositories and run small Python or JavaScript projects in restricted Docker containers without installing their toolchains.
 
 **Project status:** Work in progress
 
@@ -19,6 +19,7 @@ The long-term goal is to let developers explore projects and eventually run supp
 - Optional GitHub token support for higher API rate limits.
 - Automated backend tests that run without network access.
 - Run a repository's root-level `main.py` and sibling Python modules with the standard library in a restricted Docker container.
+- Run a repository's root-level `main.js` and sibling JavaScript modules with Node.js in a restricted Docker container.
 - Preview a repository's root-level `index.html` in a sandboxed iframe, including relative static assets.
 
 The static preview supports plain HTML, CSS, and JavaScript files already present in the repository. Relative assets are served from jsDelivr's public GitHub mirror, so the repository must be public and available through that CDN. It does not run a build tool or start a web server.
@@ -26,7 +27,7 @@ The static preview supports plain HTML, CSS, and JavaScript files already presen
 ### Planned
 
 - Render images and Markdown in the viewer.
-- Add support for Python packages and Node.js scripts.
+- Add support for Python packages and JavaScript package dependencies.
 - Add automated repository analysis and project summaries.
 - Private repository support in the user interface.
 - Improve security and execution controls.
@@ -38,13 +39,14 @@ The static preview supports plain HTML, CSS, and JavaScript files already presen
 | React | Frontend application |
 | Vite | Frontend development server and build tooling |
 | Python | Backend programming language |
+| Node.js | JavaScript execution runtime |
 | FastAPI | Backend REST API |
 | HTTPX | HTTP requests to the GitHub API |
 | highlight.js | Syntax highlighting in the file viewer |
 | pytest | Backend tests |
 | GitHub REST API | Repository metadata and file retrieval |
 | Git | Version control |
-| Docker | Restricted single-file Python execution |
+| Docker | Restricted Python and Node.js execution |
 
 ## Project Structure
 
@@ -54,7 +56,9 @@ CodeRunner/
 │   ├── main.py
 │   ├── requirements.txt
 │   ├── services/
-│   │   └── github_service.py
+│   │   ├── github_service.py
+│   │   ├── execution_service.py
+│   │   └── node_execution_service.py
 │   └── tests/
 │       └── test_api.py
 ├── frontend/
@@ -82,7 +86,7 @@ CodeRunner/
 - Node.js and npm
 - Git
 
-Docker is required for Python container execution.
+Docker is required for Python and Node.js container execution.
 
 ## Getting Started
 
@@ -201,6 +205,7 @@ If the frontend runs on a different origin than `http://localhost:5173`, add tha
 | GET | `/github/{owner}/{repo}/directory/{path}` | List any directory; an empty path lists the root |
 | GET | `/github/{owner}/{repo}/file/{file_path}` | Retrieve an individual file |
 | POST | `/github/{owner}/{repo}/run` | Run root-level `main.py` and sibling Python modules |
+| POST | `/github/{owner}/{repo}/run/node` | Run root-level `main.js` and sibling JavaScript modules |
 
 Errors are returned as JSON in the form `{"detail": "message"}` with a matching HTTP status code:
 
@@ -208,11 +213,11 @@ Errors are returned as JSON in the form `{"detail": "message"}` with a matching 
 |---|---|
 | 400 | The path is a file where a directory was expected, or the reverse |
 | 404 | Repository, directory or file not found |
-| 413 | File too large for GitHub inline display, or Python source exceeds runner limits |
-| 415 | Binary or non-UTF-8 file, or an unsupported Python source file |
-| 422 | Repository does not contain a supported root-level `main.py`, or a Python filename is unsupported |
+| 413 | File too large for GitHub inline display, or source exceeds runner limits |
+| 415 | Binary or non-UTF-8 file, or an unsupported source file |
+| 422 | Repository does not contain a supported entry point or a source filename is unsupported |
 | 429 | GitHub rate limit reached or the runner is at capacity |
-| 503 | Python runner is unavailable |
+| 503 | A language runner is unavailable |
 | 502 | GitHub unreachable, returned an error, or rejected the token |
 
 For example, to retrieve repository metadata:
@@ -245,6 +250,16 @@ docker pull python:3.12-slim
 
 CodeRunner uses that fixed Python image without pulling during a run, disables container networking, mounts no host files, enforces CPU, memory, process, time, and output limits, and allows at most two concurrent runs. Review [the execution design](docs/execution-design.md) for the scope and security boundaries. Docker is not a guarantee that arbitrary code is harmless.
 
+### Running a JavaScript script
+
+The Node.js runner requires a public repository with a root-level `main.js` and supports up to 11 sibling `.js` files, with a 16 KiB combined source limit. It uses CommonJS modules and Node.js's standard library; it does not include `package.json`, install packages, or support subfolders. Pull the runner image once before use:
+
+```bash
+docker pull node:22-slim
+```
+
+The JavaScript runner uses the same network, CPU, memory, process, runtime, and output limits as the Python runner. Review [the execution design](docs/execution-design.md) for the scope and security boundaries.
+
 ## Running the Tests
 
 The backend tests mock the GitHub API, so they need no network access or token. From the `backend` directory:
@@ -254,7 +269,7 @@ python -m pip install pytest
 python -m pytest
 ```
 
-Docker integration tests run separately and require Docker plus the Python runner image. The GitHub Actions workflow runs these tests on an Ubuntu runner. To run them locally in PowerShell:
+Docker integration tests run separately and require Docker plus the Python and Node.js runner images. The GitHub Actions workflow runs these tests on an Ubuntu runner. To run them locally in PowerShell:
 
 ```powershell
 $env:CODERUN_DOCKER_INTEGRATION = "1"

@@ -2,9 +2,9 @@
 
 ## Goal
 
-Let a student try a small GitHub project without installing its toolchain. The Python runner accepts a public repository with a root-level `main.py` and bounded sibling modules, runs that entry point in a restricted container, and shows its output and exit status. It does not try to be a general-purpose IDE or reproduce every repository's development environment.
+Let a student try a small GitHub project without installing its toolchain. The Python and Node.js runners accept public repositories with a root-level entry point and bounded sibling modules, execute it in a restricted container, and show its output and exit status. They do not try to be a general-purpose IDE or reproduce every repository's development environment.
 
-## First supported project
+## Python runner
 
 - Public GitHub repository with a root-level `main.py`.
 - Python standard library only. Do not install packages or run repository-provided setup commands.
@@ -44,16 +44,16 @@ Suggested starting limits for a local prototype: 1 CPU, 256 MiB memory, 32 proce
 
 ## Input and API behavior
 
-- Reject `main.py` files larger than 12 KiB and files that are not UTF-8 text.
+- Reject entry-point files larger than 12 KiB and source files that are not UTF-8 text.
 - Return a run identifier, status (`completed`, `failed`, `timed_out`, or `unsupported`), exit code when available, stdout, stderr, and duration.
 - Distinguish an application error (non-zero exit) from a CodeRunner setup or infrastructure error.
 - Explain unsupported projects and limit violations in direct language; do not expose tokens, host paths, or raw container control details.
-- Do not persist source code or output after the request finishes in the first slice.
+- Do not persist source code or output after the request finishes.
 - A client disconnect does not cancel an active run; the backend still stops it at the runtime or output limit.
 
 ## Not in the first slice
 
-Dependency installation, Node.js, compilation, web servers and exposed ports, GUI applications, databases, Docker Compose, GPU or hardware use, private repositories, and long-running or interactive processes. Static preview is a separate browser feature: it only loads a root-level `index.html`, reads relative assets from jsDelivr's public GitHub mirror, and renders in an iframe with sandboxing and a restrictive content policy; it does not use the Python runner or expose a server port.
+Dependency installation, compilation, web servers and exposed ports, GUI applications, databases, Docker Compose, GPU or hardware use, private repositories, and long-running or interactive processes. Static preview is a separate browser feature: it only loads a root-level `index.html`, reads relative assets from jsDelivr's public GitHub mirror, and renders in an iframe with sandboxing and a restrictive content policy; it does not use either script runner or expose a server port.
 
 ## Python source bundle limits
 
@@ -75,6 +75,23 @@ Acceptance checks for this slice:
 - A missing helper produces a normal Python traceback.
 - Nested modules, packages, third-party imports, malformed filenames, too many files, oversized files, and invalid UTF-8 sources are rejected or fail with a clear explanation.
 - The main entry point still obeys the 10-second runtime and 64 KiB output limits, and the temporary source bundle is removed after success, failure, and timeout.
+
+## Node.js execution slice
+
+- Public GitHub repository with root-level `main.js` and up to 11 regular sibling `.js` files.
+- CommonJS modules only, using `require()` for root-level local modules. The repository's `package.json` is not included, so its `type` field cannot change the runner's module mode.
+- Node.js standard library only. Do not run npm, install packages, or execute package scripts.
+- At most 12 source files, 12 KiB for `main.js`, and 16 KiB combined source; cap the encoded source bundle at 24 KiB for Windows command-line compatibility.
+- Use a fixed Node.js image and command; keep all Docker restrictions and shared concurrency, output, and outer startup limits.
+- Enforce the 10-second program runtime inside the container, and cap the Node.js heap at 128 MiB within the 256 MiB container memory limit.
+- Materialize sources only in the container's temporary filesystem and delete them after the child process exits. The container is removed on success, error, output overflow, and timeout.
+
+Acceptance checks:
+
+- `main.js` prints output and successfully imports a sibling `.js` module.
+- JavaScript exceptions show a readable stack trace and nonzero exit status.
+- Infinite loops stop at the runtime deadline; no container remains afterward.
+- Missing entry points, unsupported filenames, oversized bundles, and unsupported package imports produce clear results.
 
 ## Decisions before implementation
 

@@ -56,6 +56,7 @@ jobs:
         run: |
           docker info
           docker pull python:3.12-slim
+          docker pull node:22-slim
 
       - name: Run Docker runner integration tests
         working-directory: backend

@@ -27,6 +27,8 @@ FAKE_TREE = {
         _entry("app.py", "app.py", "file"),
         _entry("helpers.py", "helpers.py", "file"),
         _entry("main.py", "main.py", "file"),
+        _entry("main.js", "main.js", "file"),
+        _entry("messages.js", "messages.js", "file"),
         _entry("assets", "assets", "dir"),
     ],
     "src": [
@@ -42,6 +44,8 @@ FAKE_FILES = {
     "main.py": "print('hello from CodeRunner')",
     "helpers.py": "def answer():\n    return 42\n",
     "app.py": "def run():\n    return None\n",
+    "main.js": "const { greeting } = require('./messages');\nconsole.log(greeting());",
+    "messages.js": "exports.greeting = () => 'hello from JavaScript';",
     "src/index.js": "console.log('hi')",
 }
 
@@ -127,7 +131,9 @@ def test_directories_listed_before_files(client):
         "src",
         "app.py",
         "helpers.py",
+        "main.js",
         "main.py",
+        "messages.js",
         "README.md",
     ]
 
@@ -158,7 +164,7 @@ def test_file_path_on_directory_route_returns_400(client):
 def test_legacy_contents_route_lists_root(client):
     data = client.get("/github/octo/demo/contents").json()
     assert data["repository"] == "octo/demo"
-    assert len(data["contents"]) == 6
+    assert len(data["contents"]) == 8
 
 
 def test_nested_file(client):
@@ -196,6 +202,34 @@ def test_run_endpoint_returns_execution_result(client, monkeypatch):
         "app.py": "def run():\n    return None\n",
         "main.py": "print('hello from CodeRunner')",
         "helpers.py": "def answer():\n    return 42\n",
+    }
+
+
+def test_node_run_endpoint_returns_execution_result(client, monkeypatch):
+    from services.execution_service import ExecutionResult
+
+    received_sources = {}
+
+    def run(sources):
+        received_sources.update(sources)
+        return ExecutionResult("completed", 0, "hello from JavaScript\n", "", 12)
+
+    monkeypatch.setattr(main, "run_node_script", run)
+
+    response = client.post("/github/octo/demo/run/node")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "repository": "octo/demo",
+        "status": "completed",
+        "exit_code": 0,
+        "stdout": "hello from JavaScript\n",
+        "stderr": "",
+        "duration_ms": 12,
+    }
+    assert received_sources == {
+        "main.js": "const { greeting } = require('./messages');\nconsole.log(greeting());",
+        "messages.js": "exports.greeting = () => 'hello from JavaScript';",
     }
 
 

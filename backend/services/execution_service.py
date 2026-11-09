@@ -162,11 +162,26 @@ def run_python_script(script: str | dict[str, str]) -> ExecutionResult:
 
     container_name = f"coderun-{uuid.uuid4().hex}"
     command = _docker_command(container_name, sources)
+    return run_container_command(
+        command,
+        container_name,
+        runtime_label="script",
+        timeout_marker=b"__CODERUN_SCRIPT_TIMEOUT__",
+    )
+
+
+def run_container_command(
+    command: list[str],
+    container_name: str,
+    runtime_label: str,
+    timeout_marker: bytes,
+) -> ExecutionResult:
+    """Run a prepared, fixed container command under shared limits."""
     if not _RUN_SLOTS.acquire(blocking=False):
         raise RunnerBusy("The Python runner is busy.")
 
     try:
-        return _run_container(command, container_name)
+        return _run_container(command, container_name, runtime_label, timeout_marker)
     finally:
         _RUN_SLOTS.release()
 
@@ -187,6 +202,8 @@ def _stop_container(docker: str, container_name: str):
 def _run_container(
     command: list[str],
     container_name: str,
+    runtime_label: str,
+    timeout_marker: bytes,
 ) -> ExecutionResult:
     started = time.monotonic()
     try:
@@ -273,17 +290,19 @@ def _run_container(
             "Could not start the Python container. Check that Docker is running."
         )
 
-    script_timed_out = b"__coderun_script_timeout__" in docker_diagnostic
-    if script_timed_out:
+    runtime_timed_out = timeout_marker.lower() in docker_diagnostic
+    if runtime_timed_out:
         output["stderr"] = output["stderr"].replace(
-            b"\n__CODERUN_SCRIPT_TIMEOUT__\n", b""
+            b"\n" + timeout_marker + b"\n", b""
         )
         timed_out = True
 
     if timed_out:
         status = "timed_out"
-        diagnostic = b"\nRun stopped after the 10 second script time limit."
-        if not script_timed_out:
+        diagnostic = (
+            f"\nRun stopped after the 10 second {runtime_label} time limit."
+        ).encode()
+        if not runtime_timed_out:
             diagnostic = (
                 b"\nRun stopped because Docker startup and execution exceeded "
                 b"the 40 second safety limit."

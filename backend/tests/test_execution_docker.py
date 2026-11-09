@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from services import execution_service
 from services.execution_service import run_python_script
+from services.node_execution_service import run_node_script
 
 
 pytestmark = pytest.mark.skipif(
@@ -65,6 +66,29 @@ def test_real_container_imports_root_module_and_is_removed(container_name):
     assert result.status == "completed"
     assert result.exit_code == 0
     assert result.stdout == "42\n"
+    assert_container_removed(container_name)
+
+
+def test_real_node_container_runs_and_imports_root_module(container_name):
+    result = run_node_script(
+        {
+            "main.js": "const { answer } = require('./helpers');\nconsole.log(answer());",
+            "helpers.js": "exports.answer = () => 42;",
+        }
+    )
+
+    assert result.status == "completed"
+    assert result.exit_code == 0
+    assert result.stdout == "42\n"
+    assert_container_removed(container_name)
+
+
+def test_real_node_container_stops_timed_out_script(container_name):
+    result = run_node_script("while (true) {}")
+
+    assert result.status == "timed_out"
+    assert result.exit_code is None
+    assert "JavaScript program time limit" in result.stderr
     assert_container_removed(container_name)
 
 

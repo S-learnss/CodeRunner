@@ -1,5 +1,6 @@
 import asyncio
 import keyword
+import re
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -18,6 +19,7 @@ from services.execution_service import (
     RunnerUnavailable,
     run_python_script,
 )
+from services.node_execution_service import run_node_script
 
 
 app = FastAPI(title="CodeRunner API")
@@ -189,85 +191,89 @@ async def repository_file(
     }
 
 
-@app.post("/github/{owner}/{repo}/run")
-async def run_repository(owner: str, repo: str):
-    """Run root main.py and its bounded root-level Python modules."""
+def _valid_source_filename(name: str, extension: str) -> bool:
+    stem = name[: -len(extension)]
+    if extension == ".py":
+        return stem.isidentifier() and not keyword.iskeyword(stem)
+    return bool(re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$.-]*", stem))
+
+
+async def _get_root_source_bundle(
+    owner: str,
+    repo: str,
+    extension: str,
+    entrypoint: str,
+    language: str,
+) -> dict[str, str]:
     try:
         entries = await get_repository_contents(owner, repo)
     except GitHubAPIError as error:
         _raise_http_error(error)
 
-    if entries is None:
-        raise HTTPException(
-            status_code=422,
-            detail="Python runs require a root-level main.py file.",
-        )
-
     if not isinstance(entries, list):
         raise HTTPException(
             status_code=422,
-            detail="Python runs require a root-level main.py file.",
+            detail=f"{language} runs require a root-level {entrypoint} file.",
         )
 
-    python_entries = [
+    source_entries = [
         entry
         for entry in entries
         if isinstance(entry, dict)
         and entry.get("type") == "file"
         and isinstance(entry.get("name"), str)
-        and entry["name"].endswith(".py")
+        and entry["name"].endswith(extension)
         and entry.get("path") == entry.get("name")
     ]
-    if not any(entry.get("name") == "main.py" for entry in python_entries):
+    if not any(entry.get("name") == entrypoint for entry in source_entries):
         raise HTTPException(
             status_code=422,
-            detail="Python runs require a root-level main.py file.",
+            detail=f"{language} runs require a root-level {entrypoint} file.",
         )
-    if len(python_entries) > MAX_SOURCE_FILES:
+    if len(source_entries) > MAX_SOURCE_FILES:
         raise HTTPException(
             status_code=413,
-            detail="This project has more than 12 root-level Python files.",
+            detail=f"This project has more than {MAX_SOURCE_FILES} root-level {language} files.",
         )
 
-    for entry in python_entries:
-        name = entry["name"]
-        if not name[:-3].isidentifier() or keyword.iskeyword(name[:-3]):
+    for entry in source_entries:
+        if not _valid_source_filename(entry["name"], extension):
             raise HTTPException(
                 status_code=422,
-                detail="Python files must use simple root-level module names.",
+                detail=f"{language} files must use simple root-level module names.",
             )
 
-    main_entry = next(entry for entry in python_entries if entry["name"] == "main.py")
+    main_entry = next(entry for entry in source_entries if entry["name"] == entrypoint)
     main_size = main_entry.get("size")
     if isinstance(main_size, int) and main_size > MAX_SCRIPT_BYTES:
         raise HTTPException(
             status_code=413,
-            detail="main.py exceeds the 12 KiB limit.",
+            detail=f"{entrypoint} exceeds the 12 KiB limit.",
         )
 
     declared_sizes = [
         entry.get("size")
-        for entry in python_entries
+        for entry in source_entries
         if isinstance(entry.get("size"), int) and entry.get("size") >= 0
     ]
     if sum(declared_sizes) > MAX_TOTAL_SOURCE_BYTES:
         raise HTTPException(
             status_code=413,
-            detail="Python source files exceed the 16 KiB total limit.",
+            detail=f"{language} source files exceed the 16 KiB total limit.",
         )
 
     try:
         file_results = await asyncio.gather(
             *(
                 get_repository_file(owner, repo, entry["name"])
-                for entry in python_entries
+                for entry in source_entries
             )
         )
     except GitHubAPIError as error:
         _raise_http_error(error)
 
     sources = {}
-    for entry, data in zip(python_entries, file_results):
+    for entry, data in zip(source_entries, file_results):
         if (
             not isinstance(data, dict)
             or data.get("type") != "file"
@@ -276,7 +282,7 @@ async def run_repository(owner: str, repo: str):
         ):
             raise HTTPException(
                 status_code=415,
-                detail="Only regular root-level Python files can be run.",
+                detail=f"Only regular root-level {language} files can be run.",
             )
         if (
             data.get("is_binary")
@@ -290,22 +296,36 @@ async def run_repository(owner: str, repo: str):
         sources[entry["name"]] = data["decoded_content"]
 
     actual_total_size = sum(len(source.encode("utf-8")) for source in sources.values())
-    if len(sources["main.py"].encode("utf-8")) > MAX_SCRIPT_BYTES:
+    if len(sources[entrypoint].encode("utf-8")) > MAX_SCRIPT_BYTES:
         raise HTTPException(
             status_code=413,
-            detail="main.py exceeds the 12 KiB limit.",
+            detail=f"{entrypoint} exceeds the 12 KiB limit.",
         )
     if actual_total_size > MAX_TOTAL_SOURCE_BYTES:
         raise HTTPException(
             status_code=413,
-            detail="Python source files exceed the 16 KiB total limit.",
+            detail=f"{language} source files exceed the 16 KiB total limit.",
         )
+    return sources
 
+
+def _execution_response(owner: str, repo: str, result):
+    return {
+        "repository": f"{owner}/{repo}",
+        "status": result.status,
+        "exit_code": result.exit_code,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "duration_ms": result.duration_ms,
+    }
+
+
+@app.post("/github/{owner}/{repo}/run")
+async def run_repository(owner: str, repo: str):
+    """Run root main.py and its bounded root-level Python modules."""
+    sources = await _get_root_source_bundle(owner, repo, ".py", "main.py", "Python")
     try:
-        result = await asyncio.to_thread(
-            run_python_script,
-            sources,
-        )
+        result = await asyncio.to_thread(run_python_script, sources)
     except RunnerUnavailable as error:
         raise HTTPException(
             status_code=503,
@@ -316,12 +336,23 @@ async def run_repository(owner: str, repo: str):
             status_code=429,
             detail="CodeRunner is running its maximum number of projects. Please try again shortly.",
         ) from error
+    return _execution_response(owner, repo, result)
 
-    return {
-        "repository": f"{owner}/{repo}",
-        "status": result.status,
-        "exit_code": result.exit_code,
-        "stdout": result.stdout,
-        "stderr": result.stderr,
-        "duration_ms": result.duration_ms,
-    }
+
+@app.post("/github/{owner}/{repo}/run/node")
+async def run_node_repository(owner: str, repo: str):
+    """Run root main.js and its bounded root-level JavaScript modules."""
+    sources = await _get_root_source_bundle(owner, repo, ".js", "main.js", "JavaScript")
+    try:
+        result = await asyncio.to_thread(run_node_script, sources)
+    except RunnerUnavailable as error:
+        raise HTTPException(
+            status_code=503,
+            detail="The JavaScript runner is unavailable. Start Docker Desktop and make sure the Node.js image has been downloaded.",
+        ) from error
+    except RunnerBusy as error:
+        raise HTTPException(
+            status_code=429,
+            detail="CodeRunner is running its maximum number of projects. Please try again shortly.",
+        ) from error
+    return _execution_response(owner, repo, result)
