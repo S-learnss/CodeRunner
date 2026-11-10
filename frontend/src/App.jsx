@@ -43,10 +43,13 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [nodeRunning, setNodeRunning] = useState(false);
+  const [javaRunning, setJavaRunning] = useState(false);
   const [runResult, setRunResult] = useState(null);
   const [runError, setRunError] = useState("");
   const [nodeRunResult, setNodeRunResult] = useState(null);
   const [nodeRunError, setNodeRunError] = useState("");
+  const [javaRunResult, setJavaRunResult] = useState(null);
+  const [javaRunError, setJavaRunError] = useState("");
 
   async function exploreRepository() {
     setError("");
@@ -55,6 +58,8 @@ function App() {
     setRunError("");
     setNodeRunResult(null);
     setNodeRunError("");
+    setJavaRunResult(null);
+    setJavaRunError("");
 
     if (!githubUrl.trim()) {
       setError("Please enter a GitHub repository URL.");
@@ -116,6 +121,25 @@ function App() {
     }
   }
 
+  async function runJavaRepository() {
+    if (!repository) return;
+
+    setJavaRunError("");
+    setJavaRunResult(null);
+    setJavaRunning(true);
+
+    try {
+      const data = await apiPost(
+        `/github/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}/run/java`
+      );
+      setJavaRunResult(data);
+    } catch (error) {
+      setJavaRunError(error.message);
+    } finally {
+      setJavaRunning(false);
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="site-header">
@@ -132,7 +156,7 @@ function App() {
           <h1 id="welcome-title">Try a project before setting it up.</h1>
           <p className="welcome-copy">
             Browse a public GitHub repository, preview a simple website, or run a
-            small Python or JavaScript script in a restricted container.
+            small Python, JavaScript, or Java project in a restricted container.
           </p>
 
           <form
@@ -154,7 +178,7 @@ function App() {
                 placeholder="https://github.com/owner/repository"
                 aria-describedby="repository-hint"
               />
-              <button className="button button--primary" type="submit" disabled={loading || running || nodeRunning}>
+              <button className="button button--primary" type="submit" disabled={loading || running || nodeRunning || javaRunning}>
                 {loading ? "Loading repository…" : "Explore repository"}
               </button>
             </div>
@@ -198,7 +222,7 @@ function App() {
                   files using the standard library. Packages and subfolders
                   aren&apos;t included.
                 </p>
-                <button className="button button--primary" onClick={runRepository} disabled={running || nodeRunning}>
+                <button className="button button--primary" onClick={runRepository} disabled={running || nodeRunning || javaRunning}>
                   {running ? "Running script…" : "Run main.py"}
                 </button>
                 {runError && <p className="message message--error" role="alert">{runError}</p>}
@@ -215,12 +239,31 @@ function App() {
                   <button
                     className="button button--primary"
                     onClick={runNodeRepository}
-                    disabled={running || nodeRunning}
+                    disabled={running || nodeRunning || javaRunning}
                   >
                     {nodeRunning ? "Running JavaScript…" : "Run main.js with Node.js"}
                   </button>
                   {nodeRunError && <p className="message message--error" role="alert">{nodeRunError}</p>}
                   <RunResult result={nodeRunResult} />
+                </section>
+
+                <section className="node-runner" aria-labelledby="java-run-title">
+                  <p className="eyebrow">RUN JAVA</p>
+                  <h3 id="java-run-title">Try the Java entry point</h3>
+                  <p className="tool-card__description">
+                    Compiles root-level <code>Main.java</code> and sibling Java
+                    files, then runs <code>Main</code>. Packages and dependencies
+                    aren&apos;t included.
+                  </p>
+                  <button
+                    className="button button--primary"
+                    onClick={runJavaRepository}
+                    disabled={running || nodeRunning || javaRunning}
+                  >
+                    {javaRunning ? "Compiling and running Java…" : "Run Main.java"}
+                  </button>
+                  {javaRunError && <p className="message message--error" role="alert">{javaRunError}</p>}
+                  <RunResult result={javaRunResult} />
                 </section>
               </section>
 

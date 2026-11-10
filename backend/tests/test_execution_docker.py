@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from services import execution_service
 from services.execution_service import run_python_script
 from services.node_execution_service import run_node_script
+from services.java_execution_service import run_java_project
 
 
 pytestmark = pytest.mark.skipif(
@@ -89,6 +90,40 @@ def test_real_node_container_stops_timed_out_script(container_name):
     assert result.status == "timed_out"
     assert result.exit_code is None
     assert "JavaScript program time limit" in result.stderr
+    assert_container_removed(container_name)
+
+
+def test_real_java_container_compiles_runs_and_imports_sibling(container_name):
+    result = run_java_project(
+        {
+            "Main.java": "public class Main { public static void main(String[] args) { System.out.println(Helper.answer()); } }",
+            "Helper.java": "class Helper { static int answer() { return 42; } }",
+        }
+    )
+
+    assert result.status == "completed"
+    assert result.exit_code == 0
+    assert result.stdout == "42\n"
+    assert_container_removed(container_name)
+
+
+def test_real_java_container_reports_compilation_error(container_name):
+    result = run_java_project("public class Main { public static void main(String[] args) { missing(); } }")
+
+    assert result.status == "failed"
+    assert result.exit_code != 0
+    assert "cannot find symbol" in result.stderr
+    assert_container_removed(container_name)
+
+
+def test_real_java_container_stops_timed_out_program(container_name):
+    result = run_java_project(
+        "public class Main { public static void main(String[] args) { while (true) {} } }"
+    )
+
+    assert result.status == "timed_out"
+    assert result.exit_code is None
+    assert "Java compile or program time limit" in result.stderr
     assert_container_removed(container_name)
 
 

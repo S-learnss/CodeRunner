@@ -2,7 +2,7 @@
 
 CodeRunner is a web-based GitHub repository explorer designed to make it easier to inspect and understand software projects. It connects a React frontend to a FastAPI backend that retrieves repository information and source files through the GitHub REST API.
 
-CodeRunner lets students explore public GitHub repositories and run small Python or JavaScript projects in restricted Docker containers without installing their toolchains.
+CodeRunner lets students explore public GitHub repositories and run small Python, JavaScript, or Java projects in restricted Docker containers without installing their toolchains.
 
 **Project status:** Work in progress
 
@@ -20,6 +20,7 @@ CodeRunner lets students explore public GitHub repositories and run small Python
 - Automated backend tests that run without network access.
 - Run a repository's root-level `main.py` and sibling Python modules with the standard library in a restricted Docker container.
 - Run a repository's root-level `main.js` and sibling JavaScript modules with Node.js in a restricted Docker container.
+- Compile and run a repository's root-level `Main.java` and sibling Java sources in a restricted Docker container.
 - Preview a repository's root-level `index.html` in a sandboxed iframe, including relative static assets.
 
 The static preview supports plain HTML, CSS, and JavaScript files already present in the repository. Relative assets are served from jsDelivr's public GitHub mirror, so the repository must be public and available through that CDN. It does not run a build tool or start a web server.
@@ -40,13 +41,14 @@ The static preview supports plain HTML, CSS, and JavaScript files already presen
 | Vite | Frontend development server and build tooling |
 | Python | Backend programming language |
 | Node.js | JavaScript execution runtime |
+| Java | Java compilation and execution runtime |
 | FastAPI | Backend REST API |
 | HTTPX | HTTP requests to the GitHub API |
 | highlight.js | Syntax highlighting in the file viewer |
 | pytest | Backend tests |
 | GitHub REST API | Repository metadata and file retrieval |
 | Git | Version control |
-| Docker | Restricted Python and Node.js execution |
+| Docker | Restricted Python, Node.js, and Java execution |
 
 ## Project Structure
 
@@ -58,13 +60,15 @@ CodeRunner/
 │   ├── services/
 │   │   ├── github_service.py
 │   │   ├── execution_service.py
-│   │   └── node_execution_service.py
+│   │   ├── node_execution_service.py
+│   │   └── java_execution_service.py
 │   └── tests/
 │       ├── test_api.py
 │       ├── test_execution_service.py
 │       ├── test_execution_docker.py
 │       ├── test_github_content.py
-│       └── test_node_execution_service.py
+│       ├── test_node_execution_service.py
+│       └── test_java_execution_service.py
 ├── frontend/
 │   ├── src/
 │   │   ├── components/
@@ -90,9 +94,10 @@ CodeRunner/
 
 - Python 3.10 or newer
 - Node.js and npm
+- Docker Desktop for running projects
 - Git
 
-Docker is required for Python and Node.js container execution.
+Docker is required for Python, Node.js, and Java container execution.
 
 ## Getting Started
 
@@ -212,6 +217,7 @@ If the frontend runs on a different origin than `http://localhost:5173`, add tha
 | GET | `/github/{owner}/{repo}/file/{file_path}` | Retrieve an individual file |
 | POST | `/github/{owner}/{repo}/run` | Run root-level `main.py` and sibling Python modules |
 | POST | `/github/{owner}/{repo}/run/node` | Run root-level `main.js` and sibling JavaScript modules |
+| POST | `/github/{owner}/{repo}/run/java` | Compile and run root-level `Main.java` and sibling Java sources |
 
 Errors are returned as JSON in the form `{"detail": "message"}` with a matching HTTP status code:
 
@@ -266,7 +272,17 @@ docker pull node:22-slim
 
 The JavaScript runner uses `node:22-slim` without pulling during a run. It runs CommonJS code and sibling `.js` modules; third-party packages and `package.json` scripts are not included.
 
-Both runners disable container networking, mount no host files, and use a read-only container filesystem except for temporary source storage. Each run is limited to 1 CPU, 256 MiB of container memory, 32 processes, 10 seconds of program runtime, and 64 KiB of combined output. Docker startup has a separate 30-second allowance, with a 40-second overall safety limit. CodeRunner allows at most two runs at once. These restrictions reduce risk but do not guarantee that arbitrary code is harmless. See [the execution design](docs/execution-design.md) for details.
+### Running a Java project
+
+The Java runner requires a public repository with a root-level `Main.java` and supports up to 11 sibling `.java` files, with a 16 KiB combined source limit. The entry point must define `Main` with a standard `public static void main(String[] args)` method. It compiles the included root-level Java files before running `Main`. Java standard-library imports are available; packages, Maven, Gradle, annotation processors, and third-party dependencies are not supported. Pull the fixed JDK image once before use:
+
+```bash
+docker pull eclipse-temurin:21-jdk
+```
+
+The Java runner uses that image without pulling during a run. Compilation and program execution each have a 10-second limit.
+
+All runners disable container networking, mount no host files, and use a read-only container filesystem except for temporary source storage. Each run is limited to 1 CPU, 256 MiB of container memory, 32 processes, and 64 KiB of combined output. Python and JavaScript programs have 10 seconds to run; Java compilation and its program each have a separate 10-second limit. Docker startup has a separate 30-second allowance, with a 40-second overall safety limit for Python and JavaScript and 50 seconds for Java. CodeRunner allows at most two runs at once. These restrictions reduce risk but do not guarantee that arbitrary code is harmless. See [the execution design](docs/execution-design.md) for details.
 
 ## Running the Tests
 
@@ -277,7 +293,7 @@ python -m pip install pytest
 python -m pytest
 ```
 
-Docker integration tests run separately and require Docker plus the Python and Node.js runner images. The GitHub Actions workflow runs these tests on an Ubuntu runner. To run them locally in PowerShell:
+Docker integration tests run separately and require Docker plus the Python, Node.js, and Java runner images. The GitHub Actions workflow runs these tests on an Ubuntu runner. To run them locally in PowerShell:
 
 ```powershell
 $env:CODERUN_DOCKER_INTEGRATION = "1"

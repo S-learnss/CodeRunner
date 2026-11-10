@@ -29,6 +29,8 @@ FAKE_TREE = {
         _entry("main.py", "main.py", "file"),
         _entry("main.js", "main.js", "file"),
         _entry("messages.js", "messages.js", "file"),
+        _entry("Main.java", "Main.java", "file"),
+        _entry("Helper.java", "Helper.java", "file"),
         _entry("assets", "assets", "dir"),
     ],
     "src": [
@@ -46,6 +48,8 @@ FAKE_FILES = {
     "app.py": "def run():\n    return None\n",
     "main.js": "const { greeting } = require('./messages');\nconsole.log(greeting());",
     "messages.js": "exports.greeting = () => 'hello from JavaScript';",
+    "Main.java": "public class Main { public static void main(String[] args) { System.out.println(Helper.answer()); } }",
+    "Helper.java": "class Helper { static int answer() { return 42; } }",
     "src/index.js": "console.log('hi')",
 }
 
@@ -130,7 +134,9 @@ def test_directories_listed_before_files(client):
         "assets",
         "src",
         "app.py",
+        "Helper.java",
         "helpers.py",
+        "Main.java",
         "main.js",
         "main.py",
         "messages.js",
@@ -230,6 +236,34 @@ def test_node_run_endpoint_returns_execution_result(client, monkeypatch):
     assert received_sources == {
         "main.js": "const { greeting } = require('./messages');\nconsole.log(greeting());",
         "messages.js": "exports.greeting = () => 'hello from JavaScript';",
+    }
+
+
+def test_java_run_endpoint_returns_execution_result(client, monkeypatch):
+    from services.execution_service import ExecutionResult
+
+    received_sources = {}
+
+    def run(sources):
+        received_sources.update(sources)
+        return ExecutionResult("completed", 0, "42\n", "", 120)
+
+    monkeypatch.setattr(main, "run_java_project", run)
+
+    response = client.post("/github/octo/demo/run/java")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "repository": "octo/demo",
+        "status": "completed",
+        "exit_code": 0,
+        "stdout": "42\n",
+        "stderr": "",
+        "duration_ms": 120,
+    }
+    assert received_sources == {
+        "Main.java": FAKE_FILES["Main.java"],
+        "Helper.java": FAKE_FILES["Helper.java"],
     }
 
 

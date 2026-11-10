@@ -20,6 +20,7 @@ from services.execution_service import (
     run_python_script,
 )
 from services.node_execution_service import run_node_script
+from services.java_execution_service import run_java_project
 
 
 app = FastAPI(title="CodeRunner API")
@@ -195,6 +196,19 @@ def _valid_source_filename(name: str, extension: str) -> bool:
     stem = name[: -len(extension)]
     if extension == ".py":
         return stem.isidentifier() and not keyword.iskeyword(stem)
+    if extension == ".java":
+        java_keywords = {
+            "abstract", "assert", "boolean", "break", "byte", "case", "catch",
+            "char", "class", "const", "continue", "default", "do", "double",
+            "else", "enum", "extends", "final", "finally", "float", "for",
+            "goto", "if", "implements", "import", "instanceof", "int",
+            "interface", "long", "native", "new", "package", "private",
+            "protected", "public", "return", "short", "static", "strictfp",
+            "super", "switch", "synchronized", "this", "throw", "throws",
+            "transient", "try", "void", "volatile", "while", "true", "false",
+            "null", "_",
+        }
+        return bool(re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$]*", stem)) and stem not in java_keywords
     return bool(re.fullmatch(r"[A-Za-z_$][A-Za-z0-9_$.-]*", stem))
 
 
@@ -238,9 +252,12 @@ async def _get_root_source_bundle(
 
     for entry in source_entries:
         if not _valid_source_filename(entry["name"], extension):
+            filename_guidance = (
+                "source filenames" if extension == ".java" else "module names"
+            )
             raise HTTPException(
                 status_code=422,
-                detail=f"{language} files must use simple root-level module names.",
+                detail=f"{language} files must use simple root-level {filename_guidance}.",
             )
 
     main_entry = next(entry for entry in source_entries if entry["name"] == entrypoint)
@@ -349,6 +366,25 @@ async def run_node_repository(owner: str, repo: str):
         raise HTTPException(
             status_code=503,
             detail="The JavaScript runner is unavailable. Start Docker Desktop and make sure the Node.js image has been downloaded.",
+        ) from error
+    except RunnerBusy as error:
+        raise HTTPException(
+            status_code=429,
+            detail="CodeRunner is running its maximum number of projects. Please try again shortly.",
+        ) from error
+    return _execution_response(owner, repo, result)
+
+
+@app.post("/github/{owner}/{repo}/run/java")
+async def run_java_repository(owner: str, repo: str):
+    """Compile and run root Main.java and bounded sibling Java sources."""
+    sources = await _get_root_source_bundle(owner, repo, ".java", "Main.java", "Java")
+    try:
+        result = await asyncio.to_thread(run_java_project, sources)
+    except RunnerUnavailable as error:
+        raise HTTPException(
+            status_code=503,
+            detail="The Java runner is unavailable. Start Docker Desktop and make sure the Java image has been downloaded.",
         ) from error
     except RunnerBusy as error:
         raise HTTPException(

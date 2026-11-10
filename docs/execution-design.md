@@ -2,7 +2,7 @@
 
 ## Goal
 
-Let a student try a small GitHub project without installing its toolchain. The Python and Node.js runners accept public repositories with a root-level entry point and bounded sibling modules, execute it in a restricted container, and show its output and exit status. They do not try to be a general-purpose IDE or reproduce every repository's development environment.
+Let a student try a small GitHub project without installing its toolchain. The Python, Node.js, and Java runners accept public repositories with a root-level entry point and bounded sibling source files, execute them in a restricted container, and show their output and exit status. They do not try to be a general-purpose IDE or reproduce every repository's development environment.
 
 ## Python runner
 
@@ -40,7 +40,7 @@ Each run uses a fresh container and a fixed command. Start with these conservati
 - No credentials, host environment variables, home directory, or unrelated host paths passed to the container.
 - Always stop and remove the container and its temporary storage, including on timeout or backend errors.
 
-Suggested starting limits for a local prototype: 1 CPU, 256 MiB memory, 32 processes, 10 seconds of script runtime, a separate 30-second Docker startup allowance, and 64 KiB combined output. The script timer starts inside the container so Docker Desktop's cold start does not consume the student's runtime. A 40-second outer deadline still stops a stuck runner. Validate these against representative coursework before treating them as final product defaults. A Docker daemon is a privileged host boundary; this design reduces exposure but is not a claim that hostile code is harmless.
+Suggested starting limits for a local prototype: 1 CPU, 256 MiB memory, 32 processes, 10 seconds of program runtime, a separate 30-second Docker startup allowance, and 64 KiB combined output. The program timer starts inside the container so Docker Desktop's cold start does not consume the student's runtime. A 40-second outer deadline still stops a stuck Python or Node.js runner; Java gets a 50-second outer deadline to allow a separate 10-second compile and program limit. Validate these against representative coursework before treating them as final product defaults. A Docker daemon is a privileged host boundary; this design reduces exposure but is not a claim that hostile code is harmless.
 
 ## Input and API behavior
 
@@ -92,6 +92,24 @@ Acceptance checks:
 - JavaScript exceptions show a readable stack trace and nonzero exit status.
 - Infinite loops stop at the runtime deadline; no container remains afterward.
 - Missing entry points, unsupported filenames, oversized bundles, and unsupported package imports produce clear results.
+
+## Java execution slice
+
+- Public GitHub repository with a root-level `Main.java` containing the `Main` class and entry point, plus up to 11 regular sibling `.java` source files.
+- Use the fixed Eclipse Temurin JDK 21 image. Run `javac` on the bounded root-level source bundle, then run `Main` from the generated classes directory.
+- Java standard library only. Do not run Maven, Gradle, repository build scripts, annotation processors selected by repository files, or install dependencies.
+- Accept simple root-level Java source filenames only. Package declarations and subdirectories are unsupported in this first slice.
+- At most 12 source files, 12 KiB for `Main.java`, and 16 KiB combined source; cap the encoded bundle at 24 KiB for Windows command-line compatibility.
+- Bound compilation and program execution independently to 10 seconds each. Limit compiler and program heaps to 128 MiB within the 256 MiB container memory limit. Use the existing CPU, process, output, and overall Docker safety limits.
+- Keep the same network, filesystem, capability, and user restrictions as the other runners. Materialize sources only in the container's temporary filesystem, and remove them with the container after every outcome.
+
+Acceptance checks:
+
+- `Main.java` compiles, prints output, and can use a sibling Java source file.
+- A Java compilation error returns readable compiler diagnostics and a nonzero exit status.
+- A Java exception returns a readable stack trace and nonzero exit status.
+- An infinite loop stops at the runtime deadline; a non-terminating compilation stops at the compile deadline.
+- Missing entry points, package declarations, unsupported filenames, oversized bundles, and dependency-based projects are rejected or clearly unsupported.
 
 ## Decisions before implementation
 

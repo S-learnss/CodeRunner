@@ -175,13 +175,23 @@ def run_container_command(
     container_name: str,
     runtime_label: str,
     timeout_marker: bytes,
+    overall_timeout_seconds: int | None = None,
 ) -> ExecutionResult:
     """Run a prepared, fixed container command under shared limits."""
     if not _RUN_SLOTS.acquire(blocking=False):
         raise RunnerBusy("The Python runner is busy.")
 
     try:
-        return _run_container(command, container_name, runtime_label, timeout_marker)
+        overall_timeout_seconds = overall_timeout_seconds or (
+            RUN_TIMEOUT_SECONDS + DOCKER_STARTUP_GRACE_SECONDS
+        )
+        return _run_container(
+            command,
+            container_name,
+            runtime_label,
+            timeout_marker,
+            overall_timeout_seconds,
+        )
     finally:
         _RUN_SLOTS.release()
 
@@ -204,6 +214,7 @@ def _run_container(
     container_name: str,
     runtime_label: str,
     timeout_marker: bytes,
+    overall_timeout_seconds: int,
 ) -> ExecutionResult:
     started = time.monotonic()
     try:
@@ -257,7 +268,7 @@ def _run_container(
                 process.kill()
             break
 
-        if time.monotonic() - started >= RUN_TIMEOUT_SECONDS + DOCKER_STARTUP_GRACE_SECONDS:
+        if time.monotonic() - started >= overall_timeout_seconds:
             timed_out = True
             _stop_container(command[0], container_name)
             if process.poll() is None:
