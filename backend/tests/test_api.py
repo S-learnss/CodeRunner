@@ -170,7 +170,7 @@ def test_file_path_on_directory_route_returns_400(client):
 def test_legacy_contents_route_lists_root(client):
     data = client.get("/github/octo/demo/contents").json()
     assert data["repository"] == "octo/demo"
-    assert len(data["contents"]) == 8
+    assert len(data["contents"]) == 10
 
 
 def test_nested_file(client):
